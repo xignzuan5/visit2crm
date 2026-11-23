@@ -59,7 +59,7 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 | `skills/visit-to-xsy/SKILL.md` | 同一流程的技能（方式 A 用），也可装进 OpenClaw / Claude Code |
 | `aily/` | 豆包工作伙伴的提示词（伙伴档案、行为准则）和自动化任务配置 |
 | `scripts/aily-deploy.mjs` | 方式 A 一键部署（驱动 aily 网页 + aily 内部接口） |
-| `scripts/send-intro-card.mjs` + `aily/intro-card.mjs` + `aily/images/` | 能力介绍卡片：GPT 生成的设计图（头图、能力一览、三步开始，提示词见 `aily/images/PROMPTS.md`）；`scripts/preview-intro-card.mjs` 本地预览 |
+| `scripts/send-intro-card.mjs` + `aily/intro-card.mjs` + `aily/images/` | 能力介绍卡片：GPT 生成的设计图（头图、能力一览、三步开始，提示词见 `aily/images/PROMPTS.md`）；`scripts/preview-intro-card.mjs` 本地预览。录音豆按官方产品图作参考生成 |
 | `scripts/verify-sales-assistant.mjs` | 在销售易里实测销售助手的每个查询口径 |
 | `aily/automations.json` | 自动录入、销售晨报两个自动化的定义（部署脚本和技能共用） |
 | `relay/aily-webhook-relay.mjs` | 可选：多维表格 → aily Webhook 的签名中转（实时触发） |

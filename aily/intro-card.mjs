@@ -7,14 +7,14 @@ export function introCard({ images = {}, chatLink, agentName = "拜访录入助�
 
   const fallback = [
     md(`**👋 我是「${agentName}」**\n你只管拜访，销售易我来录。`),
-    md("· **拜访自动录入**：录完自动整理，确认后写进销售易\n· **随口问商机**：「这周哪些商机要结单？」\n· **每日销售晨报**：工作日 8:30，快到期、久未跟进一目了然\n· **顺手记一笔**：「提醒我周五给客户发报价」"),
+    md("· **录音豆自动录入**：录音豆录完自动整理，确认后写进销售易\n· **随口问商机**：「这周哪些商机要结单？」\n· **每日销售晨报**：工作日 8:30，快到期、久未跟进一目了然\n· **顺手记一笔**：「提醒我周五给客户发报价」"),
     md("开始：打开对话，说「**开启自动录入**」「**订阅晨报**」"),
   ];
 
   const visuals = [
     images.hero && img(images.hero, `${agentName}：你只管拜访，销售易我来录`),
-    images.features && img(images.features, "我能帮你做什么"),
-    images.start && img(images.start, "三步开始：打开拜访录入助手 → 说「开启自动录入」→ 说「订阅晨报」"),
+    images.features && img(images.features, "我能帮你做什么：录音豆自动录入、随口问商机、每日销售晨报、顺手记一笔"),
+    images.start && img(images.start, "三步开始：打开拜访录入助手 → 戴上录音豆，说「开启自动录入」→ 说「订阅晨报」"),
   ].filter(Boolean);
 
   return {
