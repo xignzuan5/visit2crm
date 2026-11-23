@@ -16,7 +16,8 @@
 ### 一键配置
 
 ```bash
-npm install
+git clone https://github.com/xignzuan5/visit2crm.git && cd visit2crm
+npm install && npm install -g agent-browser   # 脚本用 agent-browser 驱动浏览器
 XSY_ENV=sandbox XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs
 ```
 脚本会打开一个浏览器窗口，**用飞书手机端扫一次码登录**，之后全部自动完成：
@@ -59,7 +60,7 @@ XSY_ENV=sandbox XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scrip
 
 - Node.js ≥ 20
 - [lark-cli](https://github.com/larksuite/cli)：`npm install -g @larksuite/cli`
-- 本项目：`git clone … && cd visit2crm && npm install`
+- 本项目：`git clone https://github.com/xignzuan5/visit2crm.git && cd visit2crm && npm install`
 
 ### 2. 飞书
 
