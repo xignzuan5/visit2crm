@@ -1,0 +1,23 @@
+{
+  "self_open_id": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "base": {
+    "base_token": "<多维表格 base_token>",
+    "table_id": "tblxxxxxxxxxxxxx",
+    "url": "https://<your-tenant>.feishu.cn/base/<base_token>?table=<table_id>"
+  },
+  "xsy": {
+    "mode": "mcp",
+    "mcp_url": "https://mcp.xiaoshouyi.com/mcp",
+    "mcp_token_file": ".secrets/xsy-mcp-token.json",
+    "web_base": "https://crm.xiaoshouyi.com",
+    "activity_entity_types": { "拜访": 0, "线上会议": 0, "电话": 0 },
+    "api_base": "https://api.xiaoshouyi.com",
+    "token_file": ".secrets/xsy-token.json",
+    "stages": []
+  },
+  "users": [
+    { "feishu_open_id": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "name": "<销售姓名>", "xsy_user_id": 0, "xsy_dept_id": 0 }
+  ],
+  "match_only_own_accounts": true,
+  "timeouts": { "remind_hours": 24, "auto_write_hours": 48 }
+}

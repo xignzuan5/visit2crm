@@ -1,0 +1,12 @@
+node_modules/
+.secrets/
+.cache/
+.DS_Store
+# 租户相关配置（由 node src/cli.mjs init 生成），不进仓库
+config/app.json
+config/base-create.json
+# 内部设计文档（含公司业务决定），不进仓库
+docs/specs/
+# 测试录音由 scripts/make-test-audio.sh 生成
+test-fixtures/*.m4a
+test-fixtures/*.wav
