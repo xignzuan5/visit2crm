@@ -41,7 +41,7 @@ export function confirmCard({ recordId, title, recordedAt, minuteUrl, account, o
         bg([md(followupPreview)]),
         stageBlock,
         { tag: "column_set", horizontal_spacing: "8px", columns: actions.map((b) => ({ tag: "column", width: "auto", elements: [b] })) },
-        md(`<font color='grey'>要修改内容：直接在[多维表格](${tableUrl})里改「跟进内容 / 建议阶段」后再点确认。48 小时未处理将只写跟进记录（标注未经确认），不改阶段。[查看妙记](${minuteUrl})</font>`),
+        md(`<font color='grey'>要修改内容：直接在[多维表格](${tableUrl})里改「跟进内容 / 建议阶段」后再点确认。不确认不会写入；24 小时未处理会再提醒一次。[查看妙记](${minuteUrl})</font>`),
       ],
     },
   };

@@ -9,7 +9,7 @@ const WEB_BASE = { production: "https://crm.xiaoshouyi.com", sandbox: "https://c
 
 export const TABLE_FIELDS = [
   { name: "妙记标题", type: "text" },
-  { name: "状态", type: "select", multiple: false, options: ["待处理", "待确认", "确认写入", "已写入", "超时自动写入", "已忽略", "非客户拜访", "无匹配", "失败"].map((name) => ({ name })) },
+  { name: "状态", type: "select", multiple: false, options: ["待处理", "待确认", "确认写入", "已写入", "已忽略", "非客户拜访", "无匹配", "失败"].map((name) => ({ name })) },
   { name: "销售", type: "user", multiple: false },
   { name: "录音时间", type: "datetime" },
   { name: "妙记链接", type: "text", style: { type: "url" } },
@@ -117,7 +117,7 @@ export async function init({ env = "production", baseToken, tableId, force = fal
     },
     users: [{ feishu_open_id: me.openId, name: me.name, xsy_user_id: Number(xsyMe.userId), xsy_dept_id: Number(xsyMe.departmentId) }],
     match_only_own_accounts: true,
-    timeouts: { remind_hours: 24, auto_write_hours: 48 },
+    timeouts: { remind_hours: 24 },
   };
   await writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n");
   ok(`已生成 ${CONFIG_PATH}`);

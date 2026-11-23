@@ -4,7 +4,7 @@
 
 两种运行方式，部署步骤见 **[DEPLOY.md](DEPLOY.md)**：
 
-- **A. 豆包工作伙伴（推荐）**：一个工作伙伴「拜访录入助手」+ 官方「飞书妙记」「销售易 CRM」连接器 + 本仓库的技能 `skills/visit-to-xsy` + 提示词 `aily/`。`node scripts/aily-deploy.mjs` 一键配置，无需服务器。
+- **A. 豆包工作伙伴（推荐）**：一个工作伙伴「拜访录入助手」+ 官方「飞书妙记」「销售易 CRM」连接器 + 本仓库的两个技能（`visit-to-xsy` 拜访录入、`xsy-sales-assistant` 查商机/晨报/记一笔）+ 提示词 `aily/`。`node scripts/aily-deploy.mjs` 一键配置，无需服务器；`scripts/send-intro-card.mjs` 给销售发能力介绍卡片。
 - **B. 自托管服务**：本仓库的 Node 程序，多维表格做状态和确认界面。`node src/cli.mjs init` 一键配置。
 
 下面是方式 B 的说明。
@@ -22,7 +22,7 @@
                            │ ③ 确认：卡片按钮，或在表格里把状态改成「确认写入」（可先改跟进内容/建议阶段）
                            ▼
                   状态=确认写入 ──▶ ④ 写入销售易：新建活动记录 + 更新商机阶段 → 状态=已写入，卡片变绿
-                  48 小时未确认 ──▶ 只写跟进记录（标注“AI 生成，未经确认”），不改阶段
+                  24 小时未确认 ──▶ 再提醒一次；不确认就不写（所有写入都必须销售确认）
 ```
 
 ## 运行
@@ -58,7 +58,12 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 | `src/pipeline.mjs` | 状态机主流程 |
 | `skills/visit-to-xsy/SKILL.md` | 同一流程的技能（方式 A 用），也可装进 OpenClaw / Claude Code |
 | `aily/` | 豆包工作伙伴的提示词（伙伴档案、行为准则）和自动化任务配置 |
-| `scripts/aily-deploy.mjs` | 方式 A 一键部署（驱动 aily 网页） |
+| `scripts/aily-deploy.mjs` | 方式 A 一键部署（驱动 aily 网页 + aily 内部接口） |
+| `scripts/send-intro-card.mjs` + `aily/intro-card.mjs` + `aily/images/` | 能力介绍卡片（GPT 生成配图） |
+| `scripts/verify-sales-assistant.mjs` | 在销售易里实测销售助手的每个查询口径 |
+| `aily/automations.json` | 自动录入、销售晨报两个自动化的定义（部署脚本和技能共用） |
+| `relay/aily-webhook-relay.mjs` | 可选：多维表格 → aily Webhook 的签名中转（实时触发） |
+| `docs/USER-STORIES.md` | 用户故事与验收标准 |
 | `src/setup.mjs` | 方式 B 的 `init` / `add-user` |
 | `test-fixtures/` + `scripts/make-test-audio.sh` | 模拟拜访对话脚本，合成测试录音 |
 

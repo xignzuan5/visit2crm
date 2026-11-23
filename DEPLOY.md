@@ -11,36 +11,54 @@
 
 ## A. 豆包工作伙伴（aily）
 
-豆包工作伙伴里已经有官方的「销售易 CRM」连接器（走的就是销售易 MCP，每个人用 OAuth 自己授权）和「飞书妙记」连接器，所以这一方式**不需要任何服务器**：只要建一个工作伙伴，装上两个连接器和本仓库的技能，写好提示词。
+豆包工作伙伴里已经有官方的「销售易 CRM」连接器（走销售易 MCP，每个人用 OAuth 自己授权）和「飞书妙记」连接器，所以这一方式**不需要任何服务器**：建一个工作伙伴，装上连接器和本仓库的两个技能，写好提示词。
+
+**总原则：查询直接执行；任何写入销售易的操作都必须销售本人明确确认。**（技能和提示词里都写死了，草稿没人确认只会提醒，不会自动写入。）
 
 ### 一键配置
 
 ```bash
 git clone https://github.com/xignzuan5/visit2crm.git && cd visit2crm
 npm install && npm install -g agent-browser   # 脚本用 agent-browser 驱动浏览器
-XSY_ENV=sandbox XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs
+XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs [--subscribe]
 ```
-脚本会打开一个浏览器窗口，**用飞书手机端扫一次码登录**，之后全部自动完成：
+脚本第一次运行会弹出浏览器窗口，**用飞书手机端扫一次码**（登录态存在 `.secrets/aily-browser-profile`，之后在后台无界面运行）。然后自动完成：
 
 1. 新建工作伙伴「拜访录入助手」（个人使用）
-2. 安装「销售易 CRM」连接器，并用上面的销售易账号完成 OAuth 授权（`XSY_ENV` 选 `production` / `sandbox`）
-3. 上传技能 `skills/visit-to-xsy`
+2. 安装「销售易 CRM」连接器，用上面的销售易账号完成 OAuth 授权（`XSY_ENV`：`production` / `sandbox`）
+3. 上传技能 `skills/visit-to-xsy`（拜访录入）和 `skills/xsy-sales-assistant`（查商机、快到期/久未跟进、拜访准备、记一笔、晨报）
 4. 写入提示词：伙伴档案 `aily/IDENTITY.md`、行为准则 `aily/SOUL.md`
-5. 创建自动化任务（`aily/AUTOMATION.md`）：工作日每小时处理一次新妙记
+5. 加 `--subscribe` 时，为**当前登录账号**开启 `aily/automations.json` 里的两个自动化（已存在则更新）
+6. 记下工作伙伴的飞书对话链接（给介绍卡片的按钮用）
+
+每一步可重复执行：已有的连接器跳过、技能更新为新版本、提示词覆盖、自动化更新。
+
+### 让销售用起来
+
+1. **发能力介绍卡片**（三张配图在 `aily/images/`，由 GPT 生成）：
+   ```bash
+   node scripts/send-intro-card.mjs --chat <销售群 chat_id>     # 或 --user <open_id>
+   ```
+   卡片介绍四项能力，并带「和拜访录入助手对话」按钮。
+2. **每个销售自己开启**（自动化属于个人账号，只处理本人的数据）：在和「拜访录入助手」的对话里说
+   - 「**开启自动录入**」：每小时处理自己的新录音豆妙记（`aily/automations.json` 第 1 项）
+   - 「**订阅晨报**」：工作日 8:30 收销售晨报（第 2 项）；「取消晨报」关闭
+3. 第一次用到销售易时，工作伙伴会请他授权一次销售易（OAuth），之后都以他本人身份读写。
+
+用户故事和验收标准见 [docs/USER-STORIES.md](docs/USER-STORIES.md)；查询口径用 `node scripts/verify-sales-assistant.mjs` 在自己的销售易里跑一遍验证。
 
 ### 手工配置（脚本失效时照做，界面以实际为准）
 
-1. aily.feishu.cn → 市场 → 工作伙伴 →「+ 自定义工作伙伴」→ 选「个人使用」（团队推广选「团队使用」并拉进销售群）→ 描述填 `aily/IDENTITY.md` 里「身份」那一句 → 创建。
-2. 工作伙伴详情 → 能力 → 连接器 →「+」→ 搜「销售易 CRM」→ 安装 → 选销售易环境 → 登录授权。确认列表里同时有「飞书妙记」（官方，默认已带）。
-3. 能力 → 技能 →「+」→「上传技能」→ 选 `skills/visit-to-xsy` 打成的 zip（或「通过 URL 创建」填本仓库地址）。
-4. 指令 → 伙伴档案 →「编辑个性化」→ 全部替换为 `aily/IDENTITY.md` → 保存；行为准则同理用 `aily/SOUL.md`。
-5. 自动化 → 新建 → 执行者选「拜访录入助手」，频率和指令照 `aily/AUTOMATION.md`。
+1. aily.feishu.cn → 市场 → 工作伙伴 →「+ 自定义工作伙伴」→「个人使用」→ 描述填 `aily/IDENTITY.md` 里「身份」那一句 → 创建。
+2. 详情 → 能力 → 连接器 →「+」→ 搜「销售易 CRM」→ 安装 → 选环境 → 登录授权；确认同时有官方「飞书妙记」。
+3. 能力 → 技能 →「+」→「上传技能」→ 分别上传 `skills/visit-to-xsy`、`skills/xsy-sales-assistant` 打成的 zip。
+4. 指令 → 伙伴档案 / 行为准则 →「编辑个性化」→ 全部替换为 `aily/IDENTITY.md` / `aily/SOUL.md` → 保存。
+5. 自动化 → 新建 → 手动创建，按 `aily/automations.json` 填（定时：每隔 1 小时 / 自定义 cron `0 30 8 * * 1-5`）。
 
-### 销售怎么用
+### 可选：实时触发（多维表格 → 工作伙伴）
 
-- **全自动**：录音豆录完，什么都不用做。每小时工作伙伴会把新的拜访整理好发来，回复「确认」即可写入销售易。
-- **手动**：把妙记链接转给「拜访录入助手」，说「录进销售易」。
-- 团队推广时，每个销售第一次使用会被要求授权一次销售易（OAuth），之后跟进记录都以他本人身份写入。
+默认每小时处理一次。要做到录完即处理：工作配方把录音豆纪要写进多维表格 → 多维表格工作流（新增记录 → HTTP 请求）→ **签名中转** `relay/aily-webhook-relay.mjs` → aily 自动化「Webhook 触发」。
+aily Webhook 要求每次请求做 HMAC 签名，多维表格的 HTTP 节点算不了，所以中间必须有这个中转（部署成 Cloudflare Worker 或任意云函数，环境变量 `AILY_WEBHOOK_URL` / `AILY_WEBHOOK_SECRET` / `RELAY_TOKEN`）。签名请求已实测能触发（`dispatched: true`）。
 
 ---
 
@@ -130,4 +148,4 @@ node src/cli.mjs listen --every 5   # 卡片回调实时处理 + 每 5 分钟同
 
 - `.secrets/` 里是飞书以外的全部凭证（销售易令牌），文件权限 600，不要提交、不要拷给别人。
 - `config/app.json` 含租户内的表格和人员 ID，已在 `.gitignore` 里。
-- 当前版本只保存**一个**销售易授权（`init` 时登录的人），所有跟进记录以这个账号写入（会尝试把负责人设为名单里的实际销售，是否允许取决于该账号在销售易的权限）。要让每个销售各自授权，用方式 A。
+- 当前版本只保存**一个**销售易授权（`init` 时登录的人），所有跟进记录以这个账号写入（会尝试把负责人设为名单里的实际销售，是否允许取决于该账号在销售易的权限）。草稿超过 24 小时没确认只提醒一次，不会自动写入。要让每个销售各自授权，用方式 A。

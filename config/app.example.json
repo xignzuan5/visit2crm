@@ -19,5 +19,5 @@
     { "feishu_open_id": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "name": "<销售姓名>", "xsy_user_id": 0, "xsy_dept_id": 0 }
   ],
   "match_only_own_accounts": true,
-  "timeouts": { "remind_hours": 24, "auto_write_hours": 48 }
+  "timeouts": { "remind_hours": 24 }
 }

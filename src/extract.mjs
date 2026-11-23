@@ -82,10 +82,9 @@ export function intentionValue(label) {
 }
 
 /** 写进销售易「活动记录内容」的正文 */
-export function formatFollowup(v, { minuteUrl, unconfirmed = false }) {
+export function formatFollowup(v, { minuteUrl }) {
   const sec = (title, items) => (items?.length ? `${title}\n${items.map((x, i) => `${i + 1}. ${x}`).join("\n")}` : "");
   return [
-    unconfirmed ? "【AI 生成，未经确认】" : "",
     `【${v.visit_type}纪要】（AI 整理自录音豆妙记）`,
     v.contacts?.length ? `客户联系人：${v.contacts.map((c) => (c.title ? `${c.name}（${c.title}）` : c.name)).join("、")}` : "",
     sec("沟通要点：", v.key_points),

@@ -1,7 +1,7 @@
 // 主流程：多维表格里的每一行 = 一条录音豆妙记，按「状态」一步步推进
 //   待处理 → (AI 整理 + 匹配销售易) → 待确认 / 非客户拜访 / 无匹配
 //   待确认 →(销售点确认 / 表格改状态)→ 确认写入 → 已写入
-//   待确认 →(超时)→ 超时自动写入（只写跟进，不改阶段）
+//   待确认 →(超过 remind_hours 未确认)→ 提醒一次，仍保持待确认（原则：所有写入都必须销售确认，绝不自动写）
 import { readFile } from "node:fs/promises";
 import * as lark from "./lark.mjs";
 import { Xsy } from "./xsy.mjs";
@@ -19,7 +19,7 @@ export async function loadContext(configPath = "config/app.json") {
   return { cfg, table, xsy };
 }
 
-const S = { pending: "待处理", confirming: "待确认", approved: "确认写入", done: "已写入", autoDone: "超时自动写入", ignored: "已忽略", notVisit: "非客户拜访", noMatch: "无匹配", failed: "失败" };
+const S = { pending: "待处理", confirming: "待确认", approved: "确认写入", done: "已写入", ignored: "已忽略", notVisit: "非客户拜访", noMatch: "无匹配", failed: "失败" };
 const fmtTime = (ms) => new Date(Number(ms)).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }).replace(/:\d\d$/, "");
 const userOf = (cfg, openId) => cfg.users.find((u) => u.feishu_open_id === openId);
 const tableUrl = (cfg) => cfg.base.url;
@@ -185,25 +185,31 @@ export async function writeApproved(ctx) {
   const { table } = ctx;
   const rows = await table.list();
   const approved = rows.filter((r) => rowStatus(r) === S.approved);
-  for (const r of approved) await writeRow(ctx, r, { unconfirmed: false });
+  for (const r of approved) await writeRow(ctx, r);
   return approved.length;
 }
 
+/** 超过 remind_hours 还没确认的草稿：提醒销售一次。只提醒，不写入。 */
 export async function handleTimeouts(ctx) {
   const { cfg, table } = ctx;
-  const hours = cfg.timeouts.auto_write_hours;
-  const rows = (await table.list()).filter((r) => rowStatus(r) === S.confirming);
+  const hours = cfg.timeouts.remind_hours ?? 24;
+  const rows = (await table.list()).filter((r) => rowStatus(r) === S.confirming && !lark.cellText(r["处理说明"]).includes("已提醒"));
   let n = 0;
   for (const r of rows) {
     const created = new Date(lark.cellText(r["创建时间"])).getTime();
     if (Date.now() - created < hours * 3600e3) continue;
-    await writeRow(ctx, r, { unconfirmed: true });
+    const sales = userOf(cfg, rowSalesId(r));
+    if (sales) {
+      await lark.sendText(sales.feishu_open_id, `「${lark.cellText(r["妙记标题"])}」的拜访记录还在等你确认，确认后才会写入销售易：${tableUrl(cfg)}`).catch((e) => log(`  提醒发送失败：${e.message.slice(0, 120)}`));
+    }
+    const note = lark.cellText(r["处理说明"]);
+    await table.update(r.record_id, { "处理说明": `${note ? note + "\n" : ""}${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} 已提醒确认` });
     n++;
   }
   return n;
 }
 
-async function writeRow(ctx, r, { unconfirmed }) {
+async function writeRow(ctx, r) {
   const { cfg, table, xsy } = ctx;
   const sales = userOf(cfg, rowSalesId(r));
   const title = lark.cellText(r["妙记标题"]);
@@ -211,7 +217,6 @@ async function writeRow(ctx, r, { unconfirmed }) {
     const accountId = lark.cellText(r["销售易客户ID"]);
     const oppId = lark.cellText(r["销售易商机ID"]);
     let content = lark.cellText(r["跟进内容"]);
-    if (unconfirmed && !content.startsWith("【AI 生成，未经确认】")) content = "【AI 生成，未经确认】\n\n" + content;
     const visitType = lark.cellText(r["跟进方式"]) || "拜访";
     const startTime = new Date(lark.cellText(r["录音时间"])).getTime() || Date.now();
     if (!content.includes("拜访时间：")) content = `拜访时间：${fmtTime(startTime)}\n${content}`;
@@ -225,7 +230,7 @@ async function writeRow(ctx, r, { unconfirmed }) {
 
     let stageMsg = "商机阶段未变更";
     const targetName = lark.cellText(r["建议阶段"]);
-    if (!unconfirmed && oppId && targetName) {
+    if (oppId && targetName) {
       const stages = await xsy.stages(oppId);
       const target = stages.find((s) => s.name === targetName && !s.closed);
       if (!target) throw new Error(`建议阶段「${targetName}」不在该商机的阶段流程中`);
@@ -238,7 +243,7 @@ async function writeRow(ctx, r, { unconfirmed }) {
       }
     }
     await table.update(r.record_id, {
-      "状态": [unconfirmed ? S.autoDone : S.done], "销售易跟进记录ID": activityId,
+      "状态": [S.done], "销售易跟进记录ID": activityId,
       "处理说明": `${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} 写入成功；${stageMsg}`,
     });
     log(`写入销售易成功：${title} → 跟进记录 ${activityId}；${stageMsg}`);
@@ -246,8 +251,7 @@ async function writeRow(ctx, r, { unconfirmed }) {
     if (messageId) {
       await lark.updateCard(messageId, doneCard({
         title, account: lark.cellText(r["客户"]), opportunity: lark.cellText(r["商机"]),
-        result: unconfirmed ? "⏱ 已超时，跟进记录已自动写入（未改阶段）" : "✅ 已写入销售易",
-        color: unconfirmed ? "orange" : "green", detail: stageMsg, link: oppId ? xsy.opportunityUrl(oppId) : undefined,
+        result: "✅ 已写入销售易", color: "green", detail: stageMsg, link: oppId ? xsy.opportunityUrl(oppId) : undefined,
       })).catch((e) => log(`  更新卡片失败：${e.message.slice(0, 150)}`));
     }
   } catch (e) {
@@ -262,6 +266,6 @@ export async function tick(ctx, { since } = {}) {
   const processed = await processPending(ctx);
   const written = await writeApproved(ctx);
   const timedOut = await handleTimeouts(ctx);
-  log(`本轮：新妙记 ${added}，整理 ${processed}，写入 ${written}，超时写入 ${timedOut}`);
+  log(`本轮：新妙记 ${added}，整理 ${processed}，写入 ${written}，提醒确认 ${timedOut}`);
   await ctx.xsy.close();
 }

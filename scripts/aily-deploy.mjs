@@ -3,7 +3,9 @@
 // 通过 agent-browser 驱动 aily 网页（aily 没有开放「创建工作伙伴」的 API）。
 //
 // 用法：
-//   XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs [--agent-id agent_xxx]
+//   XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs [--agent-id agent_xxx] [--subscribe]
+//   --subscribe：同时为当前登录账号开启 aily/automations.json 里的自动化（自动录入、销售晨报）。
+//                自动化属于个人账号；其他销售在对话里说「开启自动录入」「订阅晨报」自己开启。
 //
 // 需要人做的只有一件事：脚本打开浏览器后，用飞书手机端扫码登录（登录态保存在 .secrets/aily-browser-profile，下次免扫）。
 // 每一步可重复执行：已存在的连接器/自动化会跳过，技能会更新为新版本，提示词会覆盖为仓库里的版本。
@@ -19,26 +21,42 @@ const SESSION = process.env.AILY_SESSION || "aily-deploy";
 const PROFILE = process.env.AILY_PROFILE || path.join(ROOT, ".secrets/aily-browser-profile");
 const STATE = path.join(ROOT, ".secrets/aily-deploy.json");
 const AGENT_NAME = "拜访录入助手";
-const AUTOMATION_TITLE = "拜访记录自动录入";
+const SKILLS = ["visit-to-xsy", "xsy-sales-assistant"];
 const ENV_LABEL = { production: "生产环境", sandbox: "沙箱环境" }[process.env.XSY_ENV || "production"];
 const argv = process.argv.slice(2);
 const argAgent = argv.includes("--agent-id") ? argv[argv.indexOf("--agent-id") + 1] : null;
+const SUBSCRIBE = argv.includes("--subscribe");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log("•", ...a);
 
 // ---------------- agent-browser 封装 ----------------
+// 无头浏览器 + 持久化 profile（登录态）。只在需要扫码登录时临时开一个有界面的窗口。
+// 注意：profile 会恢复上次的多个标签页，被驱动的页面若不在最前面会被浏览器视为「后台」，
+// 动画帧停摆、菜单打不开——所以启动后先关掉多余标签页。
 let launched = false;
+let headed = false;
 async function ab(...args) {
-  const pre = ["--session", SESSION];
-  if (!launched) { pre.push("--headed", "--profile", PROFILE); launched = true; }
+  const pre = ["--session", headed ? `${SESSION}-login` : SESSION];
+  if (!launched) { pre.push("--profile", PROFILE); if (headed) pre.push("--headed"); launched = true; }
   const { stdout } = await run("agent-browser", [...pre, ...args], { maxBuffer: 32 << 20 }).catch((e) => ({ stdout: e.stdout || "" }));
   return stdout;
+}
+async function closeBrowser() {
+  await run("agent-browser", ["--session", headed ? `${SESSION}-login` : SESSION, "close"]).catch(() => {});
+  launched = false;
+}
+async function singleTab() {
+  const list = await ab("tab", "list");
+  const n = (list.match(/\[\d+\]/g) || []).length;
+  for (let i = n - 1; i >= 1; i--) await ab("tab", "close", String(i));
+  await ab("tab", "0");
 }
 const snapshot = () => ab("snapshot");
 async function ref(pattern) {
   const snap = await snapshot();
-  const re = new RegExp(`${pattern}[^\\n]*?ref=(e\\d+)`);
+  // pattern 里自带 ref=e\d+ 时直接在原处捕获，否则取 pattern 之后同一行的 ref
+  const re = pattern.includes("ref=e") ? new RegExp(pattern.replace("ref=e\\d+", "ref=(e\\d+)")) : new RegExp(`${pattern}[^\\n]*?ref=(e\\d+)`);
   return snap.match(re)?.[1] ?? null;
 }
 async function click(pattern, { required = true, wait = 1200 } = {}) {
@@ -61,6 +79,18 @@ async function waitFor(fn, { timeout = 60000, every = 2000, what = "页面" } = 
   throw new Error(`等待超时：${what}`);
 }
 
+/** 打开下拉菜单：先点，菜单没出来就聚焦按钮按回车（aily 的菜单偶尔不响应模拟点击） */
+async function openMenu(buttonPattern, itemPattern) {
+  for (let i = 0; i < 8; i++) {
+    if (await ref(itemPattern)) return;
+    const b = await ref(buttonPattern);
+    if (!b) throw new Error(`页面上没找到：${buttonPattern}`);
+    if (i % 2 === 0) { await ab("focus", `@${b}`); await ab("press", "Enter"); } else { await ab("click", `@${b}`); }
+    await sleep(1500 + i * 500);
+  }
+  if (!(await ref(itemPattern))) throw new Error(`菜单没有展开：${buttonPattern}`);
+}
+
 /** 富文本编辑器整体替换为 Markdown（先真实按键清空，再模拟粘贴，编辑器会按 Markdown 解析） */
 async function replaceEditor(markdown) {
   await js(`(()=>{const el=document.querySelector("[contenteditable=true]");el.focus();const r=document.createRange();r.setStart(el,0);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);return 1})()`);
@@ -73,11 +103,20 @@ async function replaceEditor(markdown) {
 // ---------------- 步骤 ----------------
 async function login() {
   await open("https://aily.feishu.cn/", 6000);
+  await singleTab();
   if (!(await ref('button "登录"'))) { log("已登录 aily"); return; }
+  // 无头模式里看不到二维码：关掉，开一个有界面的窗口让人扫码，登录态写进同一个 profile
+  await closeBrowser();
+  headed = true;
+  await open("https://aily.feishu.cn/", 6000);
   await click('button "登录"', { wait: 3000 });
   console.log("\n👉 请在弹出的浏览器窗口里，用飞书手机端扫码登录（最多等 5 分钟）\n");
   await waitFor(async () => (await url()).startsWith("https://aily.feishu.cn/") && !(await ref('button "登录"')), { timeout: 300000, every: 4000, what: "扫码登录" });
   log("登录成功");
+  await closeBrowser();
+  headed = false;
+  await open("https://aily.feishu.cn/", 6000);
+  await singleTab();
 }
 
 async function ensureAgent() {
@@ -112,7 +151,11 @@ async function ensureXsyConnector(agentId) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     if (await connectorInstalled(agentId)) { log("销售易 CRM 连接器已安装"); return; }
     log(`安装销售易 CRM 连接器（第 ${attempt} 次）`);
-    await click('button "添加连接器"', { wait: 2500 });
+    for (let i = 0; i < 4 && !(await ref('searchbox "搜索名称"')); i++) {
+    const b = await ref('button "添加连接器"');
+    if (i % 2 === 0) await ab("click", `@${b}`); else { await ab("focus", `@${b}`); await ab("press", "Enter"); }
+    await sleep(2500);
+  }
     await ab("fill", `@${await ref('searchbox "搜索名称"')}`, "销售易");
     await sleep(2500);
     await click('button "销售易 CRM', { wait: 2500 });
@@ -135,14 +178,14 @@ async function ensureXsyConnector(agentId) {
   log("销售易 CRM 连接器已安装");
 }
 
-async function uploadSkill(agentId) {
-  const zip = path.join(ROOT, ".cache/visit-to-xsy.zip");
+async function uploadSkill(agentId, skill) {
+  const zip = path.join(ROOT, `.cache/${skill}.zip`);
   await mkdir(path.dirname(zip), { recursive: true });
   await rm(zip, { force: true });
-  await run("zip", ["-r", zip, "visit-to-xsy"], { cwd: path.join(ROOT, "skills") });
-  log("上传技能 visit-to-xsy");
-  await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities`);
-  await click('button "添加技能"');
+  await run("zip", ["-r", zip, skill], { cwd: path.join(ROOT, "skills") });
+  log(`上传技能 ${skill}`);
+  await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities`, 8000);
+  await openMenu('button "添加技能"', 'menuitem "上传技能');
   await click('menuitem "上传技能');
   await ab("upload", 'input[type=file][accept*=".zip"]', zip);
   // 首次上传直接到「请确认新版本信息」；同名技能会先弹「技能名称重复」→ 替换
@@ -153,8 +196,8 @@ async function uploadSkill(agentId) {
   }
   await click('button "完成"', { wait: 4000 });
   await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities`);
-  if (!(await bodyText()).includes("visit-to-xsy")) throw new Error("技能上传后没有出现在列表里");
-  log("技能已就绪");
+  if (!(await bodyText()).includes(skill)) throw new Error(`技能 ${skill} 上传后没有出现在列表里`);
+  log(`技能 ${skill} 已就绪`);
 }
 
 async function writePrompts(agentId) {
@@ -168,34 +211,82 @@ async function writePrompts(agentId) {
     await click('button "保存"', { wait: 3000 });
     await open(`https://aily.feishu.cn/agents/${agentId}/detail/instruction`);
     await click(`tab "${tab}"`, { wait: 2000 });
-    const firstRule = md.split("\n").find((l) => /^(- |\d+\. )/.test(l))?.replace(/^(- |\d+\. )|\*\*/g, "").slice(0, 12);
+    const firstRule = md.split("\n").find((l) => /^(- |\d+\. )/.test(l))?.replace(/^(- |\d+\. )|[*`_]/g, "").slice(0, 12);
     if (firstRule && !(await bodyText()).includes(firstRule)) throw new Error(`${tab}保存后校验失败`);
   }
 }
 
-async function ensureAutomation() {
-  await open("https://aily.feishu.cn/autopilots");
-  if ((await bodyText()).includes(AUTOMATION_TITLE)) { log("自动化任务已存在"); return; }
-  log("创建自动化任务（每小时处理新妙记）");
-  const spec = await readFile(path.join(ROOT, "aily/AUTOMATION.md"), "utf8");
-  const instruction = spec.match(/描述（任务指令）：\s*\n\s*> (.+)/)?.[1]?.trim();
-  const pushCond = spec.match(/\| 推送条件 \| (.+?) \|/)?.[1]?.trim();
-  await click('button "新建自动化"');
-  await click('menuitem "手动创建"', { wait: 3000 });
-  await ab("fill", `@${await ref('textbox "请输入标题"')}`, AUTOMATION_TITLE);
-  await click('combobox "请选择"');
-  await click(`option "${AGENT_NAME}"`);
-  await click('combobox \\[expanded=false, ref=e\\d+\\]: 每天');
-  await click('option "每隔 N 小时"');
+/** 在 aily 页面里调它自己的接口（同源 + 登录 Cookie） */
+async function api(method, p, body) {
+  const code = `(async()=>{const r=await fetch(${JSON.stringify(p)},{method:${JSON.stringify(method)},credentials:"include",headers:{"Content-Type":"application/json"},body:${body ? JSON.stringify(JSON.stringify(body)) : "undefined"}});return await r.text()})()`;
+  const out = await js(code);
+  return typeof out === "string" ? JSON.parse(out) : out;
+}
+const schedulerConfig = (sc) => sc.type === "cron" ? { type: "cron", cron: sc.cron } : { type: "interval", intervalSeconds: sc.n * 3600 };
+
+/** 打开下拉框并选中选项（aily 的下拉框点一次常常不展开，用键盘兜底） */
+async function pick(comboPattern, optionLabel) {
+  for (let i = 0; i < 4; i++) {
+    const c = await ref(comboPattern);
+    if (!c) throw new Error(`找不到下拉框：${comboPattern}`);
+    if (i % 2 === 0) await ab("click", `@${c}`); else { await ab("focus", `@${c}`); await ab("press", "ArrowDown"); }
+    await sleep(1200);
+    const o = await ref(`option "${optionLabel}"`);
+    if (o) { await ab("click", `@${o}`); await sleep(800); return; }
+  }
+  throw new Error(`下拉框里没出现选项：${optionLabel}`);
+}
+
+async function createAutomationUI(spec) {
+  await open("https://aily.feishu.cn/autopilots", 5000);
+  await openMenu('button "新建自动化"', 'menuitem "手动创建"');
+  await click('menuitem "手动创建"', { wait: 2000 });
+  await waitFor(() => ref('textbox "请输入标题"'), { timeout: 15000, what: "自动化表单" });
+  await ab("fill", `@${await ref('textbox "请输入标题"')}`, spec.title);
+  await pick('combobox "请选择"', AGENT_NAME);
+  if (spec.schedule.type === "cron") {
+    await pick("combobox \\[expanded=false, ref=e\\d+\\]: 每天", "自定义");
+    await ab("fill", `@${await ref('textbox "请输入 cron 表达式"')}`, spec.schedule.cron);
+  } else {
+    await pick("combobox \\[expanded=false, ref=e\\d+\\]: 每天", "每隔 N 小时");
+  }
   await ab("click", `@${await ref("generic \\[ref=e\\d+\\] editable")}`);
-  await ab("keyboard", "type", instruction);
-  if (pushCond) await ab("fill", `@${await ref('textbox "推送条件"')}`, pushCond);
+  await ab("keyboard", "type", spec.instruction);
+  if (spec.push_condition) await ab("fill", `@${await ref('textbox "推送条件"')}`, spec.push_condition);
   await js(`(()=>{window.__cap=[];const o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return o.apply(this,arguments)};XMLHttpRequest.prototype.send=function(b){this.addEventListener("load",()=>{if(String(this.__u).includes("autopilot/auto/create"))window.__cap.push(String(this.responseText))});return s.apply(this,arguments)};return 1})()`);
   await click('button "创建"', { wait: 6000 });
   const res = await js("JSON.stringify(window.__cap)");
   const first = JSON.parse(JSON.parse(res || "[]")[0] || "{}");
-  if (first.code !== 0) throw new Error(`创建自动化失败：${first.msg || "未知错误"}`);
-  log("自动化任务已创建");
+  if (first.code !== 0) throw new Error(`创建自动化「${spec.title}」失败：${first.msg || "未知错误"}`);
+}
+
+/** 为当前登录账号开启 aily/automations.json 里的自动化：已存在则用接口更新指令和频率，不存在则新建 */
+async function ensureAutomations(agentId) {
+  const specs = JSON.parse(await readFile(path.join(ROOT, "aily/automations.json"), "utf8"));
+  await open("https://aily.feishu.cn/autopilots", 4000);
+  const list = await api("GET", "/workbench/api/v1/autopilot/auto/list?pageSize=50");
+  const autos = list.data?.autos ?? list.data?.items ?? list.data?.list ?? [];
+  for (const spec of specs) {
+    const found = autos.find((a) => a.name === spec.title);
+    if (!found) {
+      log(`新建自动化「${spec.title}」`);
+      await createAutomationUI(spec);
+      continue;
+    }
+    const d = await api("GET", `/workbench/api/v1/autopilot/auto/${found.autoUid}/detail`);
+    const a = d.data?.auto ?? d.data;
+    const trig = a.triggers?.[0] ?? {};
+    // update 接口只收变化的字段；schedulerConfig 要带齐原有字段，只覆盖类型/频率
+    const sc = { ...(trig.schedulerConfig ?? {}), ...schedulerConfig(spec.schedule) };
+    if (spec.schedule.type !== "cron") delete sc.cron; else delete sc.intervalSeconds;
+    const body = {
+      instruction: { content: spec.instruction },
+      trigger: { kind: trig.kind ?? 0, enabled: true, triggerId: trig.triggerId, schedulerConfig: sc },
+    };
+    const r = await api("POST", `/workbench/api/v1/autopilot/auto/${found.autoUid}/update`, body);
+    if (r.code !== 0) throw new Error(`更新自动化「${spec.title}」失败：${r.msg}`);
+    log(`已更新自动化「${spec.title}」`);
+  }
 }
 
 // ---------------- 主流程 ----------------
@@ -203,11 +294,23 @@ try {
   await login();
   const agentId = await ensureAgent();
   await ensureXsyConnector(agentId);
-  await uploadSkill(agentId);
+  for (const skill of SKILLS) await uploadSkill(agentId, skill);
   await writePrompts(agentId);
-  await ensureAutomation();
+  if (SUBSCRIBE) await ensureAutomations(agentId);
+  else log("未加 --subscribe：不替当前账号开启自动化（销售在对话里说「开启自动录入」「订阅晨报」即可）");
+  // 记下工作伙伴的飞书对话链接，给能力介绍卡片的「去对话」按钮用
+  await open(`https://aily.feishu.cn/agents/${agentId}/detail/instruction`, 5000);
+  await js(`(()=>{window.__opened=[];window.open=function(u){window.__opened.push(String(u));return null};return 1})()`);
+  await click('button "去飞书对话"', { required: false, wait: 2500 });
+  const chatLink = JSON.parse((await js("JSON.stringify(window.__opened||[])")) || "[]")[0];
+  if (chatLink) {
+    const st = JSON.parse(await readFile(STATE, "utf8").catch(() => "{}"));
+    await writeFile(STATE, JSON.stringify({ ...st, agentId, chatLink }, null, 2));
+    log(`工作伙伴对话链接：${chatLink}`);
+  }
+  await closeBrowser();
   console.log(`\n✅ 部署完成：https://aily.feishu.cn/agents/${agentId}/detail/instruction`);
-  console.log("   销售把妙记链接转给「拜访录入助手」即可，或等每小时的自动化任务处理。");
+  console.log("   给销售发能力介绍卡片：node scripts/send-intro-card.mjs --chat <销售群 chat_id>");
 } catch (e) {
   console.error(`\n✗ ${e.message}\n   （可以重新运行脚本，已完成的步骤会自动跳过）`);
   process.exitCode = 1;
