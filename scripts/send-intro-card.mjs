@@ -4,8 +4,9 @@
 //   node scripts/send-intro-card.mjs --user ou_xxx     发给某个人
 //   node scripts/send-intro-card.mjs --chat oc_xxx     发到群
 //   node scripts/send-intro-card.mjs --dry             只打印卡片 JSON
-// 配图放在 aily/images/{hero,flow,brief}.png（可用 GPT 生成），首次发送时上传并缓存 image_key。
+// 配图放在 aily/images/{hero,features,start}.png（GPT 生成的设计图），按内容哈希上传并缓存 image_key，换图会自动重新上传。
 import { readFile, writeFile, access } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { lark } from "../src/lark.mjs";
@@ -20,17 +21,19 @@ const exists = (p) => access(p).then(() => true, () => false);
 async function imageKey(name, cache) {
   const file = path.join(ROOT, "aily/images", `${name}.png`);
   if (!(await exists(file))) return null;
-  if (cache[name]) return cache[name];
+  const hash = createHash("sha256").update(await readFile(file)).digest("hex").slice(0, 16);
+  if (cache[hash]) return cache[hash];
   const res = await lark(["im", "images", "create", "--as", "bot", "--data", JSON.stringify({ image_type: "message" }), "--file", `image=${file}`]);
-  cache[name] = res.data?.image_key ?? res.data?.data?.image_key;
-  return cache[name];
+  cache[hash] = res.data?.image_key ?? res.data?.data?.image_key;
+  return cache[hash];
 }
 
 const cache = JSON.parse(await readFile(CACHE, "utf8").catch(() => "{}"));
 const state = JSON.parse(await readFile(path.join(ROOT, ".secrets/aily-deploy.json"), "utf8").catch(() => "{}"));
 const chatLink = opt("--chat-link") || state.chatLink; // 部署脚本会自动记录工作伙伴的飞书对话链接
 if (!chatLink) console.warn("提示：没有工作伙伴的对话链接，卡片里不会有「去对话」按钮（先跑 scripts/aily-deploy.mjs，或用 --chat-link 指定）");
-const card = introCard({ imgHero: await imageKey("hero", cache), imgFlow: await imageKey("flow", cache), imgBrief: await imageKey("brief", cache), chatLink });
+const images = { hero: await imageKey("hero", cache), features: await imageKey("features", cache), start: await imageKey("start", cache) };
+const card = introCard({ images, chatLink });
 await writeFile(CACHE, JSON.stringify(cache, null, 2)).catch(() => {});
 
 if (argv.includes("--dry")) { console.log(JSON.stringify(card, null, 2)); process.exit(); }
