@@ -68,6 +68,21 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 | `src/setup.mjs` | 方式 B 的 `init` / `add-user` |
 | `test-fixtures/` + `scripts/make-test-audio.sh` | 模拟拜访对话脚本，合成测试录音 |
 
+## 版本号
+
+整个仓库**一个发版号**，以下 4 处必须始终相同，改一处就要一起改：
+
+| 位置 | 字段 |
+|---|---|
+| `package.json` / `package-lock.json` | `version` |
+| `skills/visit-to-xsy/SKILL.md` | frontmatter `version` |
+| `skills/xsy-sales-assistant/SKILL.md` | frontmatter `version` |
+| `src/xsy-mcp.mjs` | MCP `Client({ name, version })` |
+
+规则：语义化版本，`x.y.z`。技能内容变化（新增流程、改判断口径、修坑）记次版本 `y`，仅文案/措辞记补丁 `z`。两个技能不单独编号——它们是一套一起部署、一起验证的，各自编号只会让线上和仓库对不上（1.0.x 与 0.x 混用的教训）。
+
+> 注意：aily 后台的技能版本号（`skillhub` 里显示的 1.0.11 之类）是**上传次数自动递增**，不读 frontmatter，和这里的发版号是两套，不要拿它对齐。
+
 ## 原型的已知限制
 
 - **销售易接入**：默认走销售易 MCP（`https://mcp.xiaoshouyi.com/mcp`），身份是授权的那个销售本人。多个销售时，每人各自授权一次（原型目前只存一个人的令牌）。

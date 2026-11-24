@@ -1,6 +1,6 @@
 ---
 name: xsy-sales-assistant
-version: 0.1.0
+version: 1.1.0
 description: "销售易日常助手：查我负责的商机、快到期/已逾期/久未跟进的商机、商机漏斗、客户拜访准备、今日任务日程，以及记一笔跟进、建提醒任务、改结单日期/金额等简单操作；也用于每天早上的销售晨报。当销售问「我有哪些商机」「哪些快到期了」「哪些好久没跟了」「帮我准备一下见XX」「记一下刚才的电话」「提醒我周五…」「把结单日期改到…」或定时任务要求生成销售晨报时使用。拜访录音整理入库用 visit-to-xsy。"
 metadata:
   requires:
@@ -58,7 +58,7 @@ metadata:
 |---|---|
 | 记一笔跟进（电话 / 微信沟通等） | `followup-create`：parentEntity=`opportunity`（无商机用 `account`）、parentRecordId、content、entityType=电话等对应类型 ID（`metadata-entityBusinessTypes` entity=activityrecord）、intentionalDegree |
 | 提醒我 X 时间做 Y | `task-create`：taskName、planStartDate、planFinishDate（缺时间先问）、parentEntity/parentRecordId 关联商机 |
-| 约会议 / 日程 | `schedule-create`：name、startDate、endDate、parentEntity/parentRecordId |
+| 约会议 / 日程 | 先判断场景。上下文含客户拜访、门店、路线、签到、拜访模板、被访对象，或用户说的就是「拜访日程」→ **停下追问**：要建 PRM 拜访计划明细（`prm.visitPlanDetail`），还是普通 CRM 日程？确认后才动。明确是会议、电话、回访提醒、待办这类普通日程 → `schedule-create`：name、startDate、endDate、parentEntity/parentRecordId。**`schedule-create` 只能建普通 CRM 日程，建不出 PRM 的 visitPlan / visitPlanDetail / visitRoute，不要拿它当拜访计划用**，也不要自动改建议「用任务代替」，等用户确认 |
 | 改结单日期 / 金额 | `entity-update` entity=`opportunity` recordId fields `{closeDate: <毫秒>}` 或 `{money: <数字>}`，先 `dryRun: true` |
 | 推进阶段 | 按 visit-to-xsy 第 5、7 节的规则（逐级推进、赢单输单不在这里做） |
 

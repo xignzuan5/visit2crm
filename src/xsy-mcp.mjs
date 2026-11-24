@@ -26,7 +26,7 @@ export async function connectXsyMcp({ url = "https://mcp.xiaoshouyi.com/mcp", to
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: { headers: { Authorization: `Bearer ${t.access_token}` } },
   });
-  const client = new Client({ name: "visit2crm-prototype", version: "0.1.0" });
+  const client = new Client({ name: "visit2crm-prototype", version: "1.1.0" });
   await client.connect(transport);
   return client;
 }
