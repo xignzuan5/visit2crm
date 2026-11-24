@@ -1,6 +1,6 @@
 #!/bin/bash
 # 用 macOS 自带语音把 test-fixtures/visit-dialogue.txt 合成一段双人对话录音（模拟录音豆录音）
-# 用法：scripts/make-test-audio.sh [输出文件，默认 test-fixtures/模拟客户拜访.m4a]
+# 用法：[DIALOGUE=对话文件] scripts/make-test-audio.sh [输出文件，默认 test-fixtures/模拟客户拜访.m4a]
 # 注意：客户声音必须用中文语音（如 "Eddy (中文（中国大陆）)"）；英文语音读中文会输出空白音频。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,7 +15,7 @@ while IFS='|' read -r who line; do
   if [ "$who" = "C" ]; then v="$CUSTOMER_VOICE"; else v="$SALES_VOICE"; fi
   say -v "$v" -r 185 -o "$TMP/$n.aiff" "$line"
   afconvert -f WAVE -d LEI16@22050 -c 1 "$TMP/$n.aiff" "$TMP/$n.wav"
-done < test-fixtures/visit-dialogue.txt
+done < "${DIALOGUE:-test-fixtures/visit-dialogue.txt}"
 python3 - "$TMP" <<'PY'
 import wave, glob, sys
 d = sys.argv[1]

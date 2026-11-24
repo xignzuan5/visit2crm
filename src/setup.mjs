@@ -19,6 +19,7 @@ export const TABLE_FIELDS = [
   { name: "当前阶段", type: "text" },
   { name: "建议阶段", type: "text" },
   { name: "阶段依据", type: "text" },
+  { name: "建议更新", type: "text" }, // 商机情报里能回写销售易的部分（JSON），清空则只写跟进记录
   { name: "跟进方式", type: "select", multiple: false, options: [{ name: "拜访" }, { name: "线上会议" }, { name: "电话" }] },
   { name: "跟进内容", type: "text" },
   { name: "意向程度", type: "select", multiple: false, options: ["无意向", "略有意向", "意向一般", "意向较高", "意向极高"].map((name) => ({ name })) },

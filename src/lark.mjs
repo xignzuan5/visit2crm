@@ -89,6 +89,18 @@ export class BaseTable {
     await lark(["base", "+record-batch-update", "--as", "user", "--base-token", this.baseToken,
       "--table-id", this.tableId, "--json", JSON.stringify({ update_records: { [recordId]: fields } })]);
   }
+
+  /** 老表格升级：缺的列自动补上（只加不删） */
+  async ensureFields(defs) {
+    const res = await lark(["base", "+field-list", "--as", "user", "--base-token", this.baseToken, "--table-id", this.tableId]);
+    const list = res.data?.fields ?? res.data?.items ?? res.data ?? [];
+    const have = new Set((Array.isArray(list) ? list : []).map((f) => f.name ?? f.field_name));
+    const missing = defs.filter((d) => !have.has(d.name));
+    if (missing.length) {
+      await lark(["base", "+field-create", "--as", "user", "--base-token", this.baseToken, "--table-id", this.tableId, "--json", JSON.stringify(missing)]);
+    }
+    return missing.map((d) => d.name);
+  }
 }
 
 // +record-list --format json 返回 {fields:[...], data:[[...]], record_id_list:[...]} 一类的矩阵；兼容几种形态

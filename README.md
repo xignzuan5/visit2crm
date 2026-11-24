@@ -1,6 +1,6 @@
 # 录音豆拜访 → 销售易
 
-销售用飞书**录音豆**录客户拜访 → 飞书妙记 → AI 整理成跟进记录、判断商机阶段 → 销售在飞书确认 → 写入**销售易**（新增跟进记录 + 推进商机阶段）。
+销售用飞书**录音豆**录客户拜访 → 飞书妙记 → AI 整理成跟进记录、按 **MEDDPICC** 提取商机情报、判断商机阶段 → 销售在飞书确认 → 写入**销售易**（新增跟进记录 + 推进商机阶段 + 回填联系人角色 / 竞争对手 / 项目预算）。
 
 两种运行方式，部署步骤见 **[DEPLOY.md](DEPLOY.md)**：
 
@@ -49,7 +49,8 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 | 路径 | 作用 |
 |---|---|
 | `src/lark.mjs` | 飞书：妙记搜索/读取、多维表格读写、卡片发送/更新（全部走 lark-cli） |
-| `src/xsy-mcp-adapter.mjs` | 销售易 MCP（默认）：搜客户/商机、读阶段流程、建跟进记录、按规则逐级推进阶段 |
+| `src/xsy-mcp-adapter.mjs` | 销售易 MCP（默认）：搜客户/商机、读阶段流程、建跟进记录、按规则逐级推进阶段、商机情报回写（先 dryRun） |
+| `src/deal.mjs` | 商机情报 → 建议更新（项目预算、联系人角色、竞争对手），落不到字段的说明原因 |
 | `src/xsy-mcp.mjs` | MCP 客户端（Streamable HTTP + OAuth，令牌自动续期） |
 | `src/xsy.mjs` | 销售易 OpenAPI 备用通道（`config.xsy.mode = "openapi"`） |
 | `scripts/xsy-mcp-login.mjs` | 销售易 MCP OAuth 登录 / 续期 |

@@ -6,8 +6,10 @@ import { readFile } from "node:fs/promises";
 import * as lark from "./lark.mjs";
 import { Xsy } from "./xsy.mjs";
 import { XsyMcp } from "./xsy-mcp-adapter.mjs";
-import { analyzeVisit, judgeStage, formatFollowup, intentionValue } from "./extract.mjs";
+import { analyzeVisit, judgeStage, extractDeal, formatFollowup, intentionValue } from "./extract.mjs";
+import { proposeUpdates, describeOp, parseOps } from "./deal.mjs";
 import { confirmCard, doneCard, needInfoCard } from "./card.mjs";
+import { TABLE_FIELDS } from "./setup.mjs";
 
 export async function loadContext(configPath = "config/app.json") {
   const cfg = JSON.parse(await readFile(configPath, "utf8"));
@@ -61,8 +63,17 @@ export async function syncMinutes(ctx, { since, tokens = [] } = {}) {
 }
 
 // ---------------------------------------------------------------- 2. 整理 + 匹配 + 发确认卡片
+/** 老表格缺新列（如「建议更新」）时自动补上；每个进程只检查一次 */
+async function ensureTable(ctx) {
+  if (ctx._tableChecked) return;
+  const added = await ctx.table.ensureFields(TABLE_FIELDS.filter((f) => f.type !== "created_at"));
+  if (added.length) log(`表格已补充新列：${added.join("、")}`);
+  ctx._tableChecked = true;
+}
+
 export async function processPending(ctx) {
   const { cfg, table } = ctx;
+  await ensureTable(ctx);
   const rows = (await table.list()).filter((r) => rowStatus(r) === S.pending);
   for (const r of rows) {
     try {
@@ -127,28 +138,36 @@ async function processRow(ctx, r) {
     if (opps.length > 1) log(`  客户下有 ${opps.length} 个进行中商机，默认取最近更新的「${opportunity.name}」`);
   }
 
-  // ---- 阶段判断（只有挂到商机时才判断）
-  let stage = null;
-  if (opportunity) {
+  // ---- 阶段判断（只有挂到商机时才判断）与商机情报（MEDDPICC）提取，两件事并行
+  const judge = async () => {
+    if (!opportunity) return null;
     const stages = (await xsy.stages(opportunity.id)).filter((x) => !x.closed);
     const s = await judgeStage({ summary: content.summary, transcript: content.transcript, currentStage: opportunity.stageName, stages });
-    stage = { current: opportunity.stageName, target: s.target?.name, targetId: s.target?.id, evidence: s.evidence_quote, note: s.note || (!s.should_change ? s.reason : "") };
-  }
+    return { current: opportunity.stageName, target: s.target?.name, targetId: s.target?.id, evidence: s.evidence_quote, note: s.note || (!s.should_change ? s.reason : "") };
+  };
+  const intel = async () => {
+    if (typeof xsy.accountContacts !== "function") return { deal: null, updates: { ops: [], notes: [] } }; // OpenAPI 备用通道不做回写
+    const contacts = await xsy.accountContacts(account.id);
+    const deal = await extractDeal({ summary: content.summary, transcript: content.transcript, salesName: sales.name, accountName: account.name, opportunityName: opportunity?.name, contacts });
+    return { deal, updates: await proposeUpdates(xsy, { deal, account, opportunity, contacts }) };
+  };
+  const [stage, { deal, updates }] = await Promise.all([judge(), intel()]);
 
-  const followup = formatFollowup(visit, { minuteUrl });
+  const followup = formatFollowup(visit, { minuteUrl, deal });
   const fields = {
     "状态": [S.confirming],
     "客户": account.name, "销售易客户ID": account.id,
     "商机": opportunity?.name ?? "", "销售易商机ID": opportunity?.id ?? "",
     "当前阶段": stage?.current ?? "", "建议阶段": stage?.target ?? "", "阶段依据": stage?.target ? stage.evidence : (stage?.note ?? ""),
     "跟进方式": [visit.visit_type], "意向程度": [visit.intention], "跟进内容": followup,
-    "处理说明": visit.multiple_customers ? "录音里涉及多个客户，只按第一个客户处理，请核对" : "",
+    "建议更新": updates.ops.length ? JSON.stringify(updates.ops) : "",
+    "处理说明": [visit.multiple_customers ? "录音里涉及多个客户，只按第一个客户处理，请核对" : "", ...updates.notes].filter(Boolean).join("\n"),
   };
   await table.update(r.record_id, fields);
-  const card = confirmCard({ recordId: r.record_id, title: content.title, recordedAt, minuteUrl, account, opportunity, followupPreview: followup, stage, tableUrl: tableUrl(cfg) });
+  const card = confirmCard({ recordId: r.record_id, title: content.title, recordedAt, minuteUrl, account, opportunity, followupPreview: followup, stage, updates, tableUrl: tableUrl(cfg) });
   const messageId = await notify(sales, card);
   if (messageId) await table.update(r.record_id, { "卡片消息ID": messageId });
-  log(`  已生成草稿并发确认卡片：${account.name} / ${opportunity?.name ?? "（无商机）"}${stage?.target ? `，建议阶段 ${stage.current}→${stage.target}` : ""}`);
+  log(`  已生成草稿并发确认卡片：${account.name} / ${opportunity?.name ?? "（无商机）"}${stage?.target ? `，建议阶段 ${stage.current}→${stage.target}` : ""}${updates.ops.length ? `，建议更新 ${updates.ops.length} 项` : ""}`);
 }
 
 async function notify(sales, card) {
@@ -174,7 +193,8 @@ export async function handleCardAction(ctx, ev) {
     return;
   }
   const fields = { "状态": [S.approved] };
-  if (v.action === "confirm_no_stage") fields["建议阶段"] = "";
+  // 只写跟进记录：不改阶段，也不做商机情报回写（confirm_no_stage 是旧卡片上的按钮）
+  if (v.action === "confirm_followup_only" || v.action === "confirm_no_stage") Object.assign(fields, { "建议阶段": "", "建议更新": "" });
   await table.update(v.record_id, fields);
   log(`卡片回调：${lark.cellText(row["妙记标题"])} → ${v.action}`);
   await writeApproved(ctx);
@@ -242,6 +262,20 @@ async function writeRow(ctx, r) {
         stageMsg = `跟进记录已写入，但商机阶段未能推进：${e.message}`;
       }
     }
+
+    // 商机情报回写（预算 / 联系人角色 / 竞争对手）：逐条执行，某条失败不影响其他条，也不回滚已写的跟进记录
+    const updateMsgs = [];
+    let ops = [];
+    try { ops = parseOps(lark.cellText(r["建议更新"])); } catch (e) { updateMsgs.push(`✗ ${e.message}`); }
+    for (const op of ops) {
+      try {
+        await xsy.applyUpdate(op, { oppId, accountId });
+        updateMsgs.push(`✓ ${describeOp(op)}`);
+      } catch (e) {
+        updateMsgs.push(`✗ ${describeOp(op)}：${e.message.slice(0, 150)}`);
+      }
+    }
+    if (updateMsgs.length) stageMsg += `\n${updateMsgs.join("\n")}`;
     await table.update(r.record_id, {
       "状态": [S.done], "销售易跟进记录ID": activityId,
       "处理说明": `${new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} 写入成功；${stageMsg}`,

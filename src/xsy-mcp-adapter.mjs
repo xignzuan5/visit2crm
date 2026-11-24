@@ -123,6 +123,87 @@ export class XsyMcp {
     return { stageId: String(after.currentStageId), stageName: after.currentStage, path: passed };
   }
 
+  // ---------------------------------------------------------------- 商机情报回写（MEDDPICC）
+  // 只支持三种写回：项目预算、联系人角色、关联竞争对手。参数全部由代码拼装，不执行表格里传来的任意调用。
+
+  /** 客户下的联系人 [{id, name, post, role}]，role 为「联系人角色」的选项名（未填为空） */
+  async accountContacts(accountId) {
+    const r = await this.call("entity-search", { entity: "contact", conditions: [{ apiKey: "accountId", type: 1, value: String(accountId) }] });
+    const labels = await this.pickLabels("contact", "contactRole");
+    return (r.data?.result?.records ?? []).map((c) => ({
+      id: String(c.id), name: c.contactName ?? c.name, post: c.post ?? "",
+      role: c["contactRole-label"] ?? labels[c.contactRole] ?? "",
+    }));
+  }
+
+  /** 字段选项 code → 名称（按租户实际配置读，不硬编码） */
+  async pickLabels(entity, field) {
+    this._labels ??= {};
+    const key = `${entity}.${field}`;
+    if (!this._labels[key]) {
+      const r = await this.call("metadata-entityDescribe", { entity });
+      const f = (r.data?.result?.fields ?? []).find((x) => x.apiKey === field);
+      this._labels[key] = Object.fromEntries((f?.pickOption ?? []).map((o) => [o.optionCode, o.optionLabel]));
+    }
+    return this._labels[key];
+  }
+
+  async opportunityBudget(oppId) {
+    const r = await this.call("entity-detail", { entity: "opportunity", recordId: String(oppId) });
+    return (r.data?.result?.record ?? r.data?.result ?? {}).projectBudget ?? null;
+  }
+
+  /** 商机已关联的竞争对手 [{id, competitorProfileId, name}] */
+  async opportunityCompetitors(oppId) {
+    const r = await this.call("entity-search", { entity: "opportunityCompetitor", conditions: [{ apiKey: "opportunityId", type: 1, value: String(oppId) }] });
+    return (r.data?.result?.records ?? []).map((c) => ({ id: String(c.id), competitorProfileId: String(c.competitorProfileId?.id ?? c.competitorProfileId ?? ""), name: c.competitorProfileId?.name ?? c.name }));
+  }
+
+  /** 在销售易竞争对手库里按名称找 [{id, name}] */
+  async findCompetitors(name) {
+    for (const kw of nameKeywords(name)) {
+      const recs = (await this.call("entity-search", { entity: "competitorProfile", keyWord: kw })).data?.result?.records ?? [];
+      if (recs.length) return recs.map((c) => ({ id: String(c.id), name: c.name }));
+    }
+    return [];
+  }
+
+  /** 把一条建议更新变成具体的 MCP 调用；oppId / accountId 取自当前这条拜访记录，不信任 op 里的 ID */
+  updateCall(op, { oppId, accountId }) {
+    if (op.kind === "budget") return ["entity-update", { entity: "opportunity", recordId: String(oppId), fields: { projectBudget: Number(op.value) } }];
+    if (op.kind === "contactRole") return ["entity-update", { entity: "contact", recordId: String(op.contactId), fields: { contactRole: op.to } }];
+    if (op.kind === "competitor") return ["entity-create", { entity: "opportunityCompetitor", fields: { name: op.name, opportunityId: String(oppId), competitorProfileId: String(op.competitorProfileId), accountId: String(accountId), competitiveStatus: "活跃" } }];
+    throw new Error(`不支持的更新类型：${op.kind}`);
+  }
+
+  /** 预检：返回 null 表示可以执行，否则返回不能执行的原因 */
+  async checkUpdate(op, ids) {
+    const [name, args] = this.updateCall(op, ids);
+    try {
+      const r = await this.call(name, { ...args, dryRun: true });
+      const d = r.data ?? {};
+      if (d.canExecute === false || d.blockers?.length || d.requiredInputs?.length) {
+        return JSON.stringify(d.blockers?.length ? d.blockers : d.requiredInputs).slice(0, 200);
+      }
+      return null;
+    } catch (e) {
+      return e.message.match(/"message":\s*"([^"]+)"/)?.[1] ?? e.message.slice(0, 200);
+    }
+  }
+
+  /** 执行一条已确认的建议更新：再预检一次，通过才写 */
+  async applyUpdate(op, { oppId, accountId }) {
+    if (op.kind === "contactRole") {
+      // 联系人必须属于这条拜访的客户，防止表格里被改成别的联系人
+      const ok = (await this.accountContacts(accountId)).some((c) => c.id === String(op.contactId));
+      if (!ok) throw new Error("该联系人不属于这个客户");
+    }
+    const why = await this.checkUpdate(op, { oppId, accountId });
+    if (why) throw new Error(why);
+    const [name, args] = this.updateCall(op, { oppId, accountId });
+    await this.call(name, args);
+  }
+
   opportunityUrl(id) {
     return `${this.webBase}/bff/neoweb#/entity/opportunity/detail/${id}`;
   }

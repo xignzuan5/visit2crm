@@ -5,6 +5,7 @@
 // 用法：
 //   XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node scripts/aily-deploy.mjs [--agent-id agent_xxx] [--subscribe]
 //   --subscribe：同时为当前登录账号开启 aily/automations.json 里的自动化（自动录入、销售晨报）。
+//   --new：不复用 .secrets/aily-deploy.json 里记录的工作伙伴，新建一个（默认只复用，打不开就报错，不会重复创建）。
 //                自动化属于个人账号；其他销售在对话里说「开启自动录入」「订阅晨报」自己开启。
 //
 // 需要人做的只有一件事：脚本打开浏览器后，用飞书手机端扫码登录（登录态保存在 .secrets/aily-browser-profile，下次免扫）。
@@ -72,7 +73,15 @@ async function js(code) {
 }
 const url = async () => (await ab("get", "url")).trim();
 const bodyText = async () => ab("get", "text", "body");
-async function open(u, wait = 4000) { await ab("open", u); await sleep(wait); }
+// aily 页面偶尔只渲染出外框、正文显示「load failed / reload」：自动刷新，最多 3 次
+async function open(u, wait = 4000) {
+  await ab("open", u);
+  await sleep(wait);
+  for (let i = 0; i < 3 && /load failed/i.test(await ab("get", "text", "body")); i++) {
+    await ab("reload");
+    await sleep(wait + 2000);
+  }
+}
 async function waitFor(fn, { timeout = 60000, every = 2000, what = "页面" } = {}) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { const v = await fn(); if (v) return v; await sleep(every); }
@@ -104,14 +113,23 @@ async function replaceEditor(markdown) {
 async function login() {
   await open("https://aily.feishu.cn/", 6000);
   await singleTab();
-  if (!(await ref('button "登录"'))) { log("已登录 aily"); return; }
+  // 登录过期时会被跳到 accounts.feishu.cn / accounts.doubao.com 的扫码页，那里没有「登录」按钮，所以要同时看地址
+  // 页面刚打开时地址还在 aily，随后才被脚本跳到登录页：连续 3 次（约 7 秒）都停在 aily 且没有「登录」按钮才算已登录
+  const loggedIn = async () => {
+    for (let i = 0; i < 3; i++) {
+      if (!(await url()).startsWith("https://aily.feishu.cn/") || (await ref('button "登录"'))) return false;
+      if (i < 2) await sleep(3500);
+    }
+    return true;
+  };
+  if (await loggedIn()) { log("已登录 aily"); return; }
   // 无头模式里看不到二维码：关掉，开一个有界面的窗口让人扫码，登录态写进同一个 profile
   await closeBrowser();
   headed = true;
   await open("https://aily.feishu.cn/", 6000);
-  await click('button "登录"', { wait: 3000 });
+  if (await ref('button "登录"')) await click('button "登录"', { wait: 3000 });
   console.log("\n👉 请在弹出的浏览器窗口里，用飞书手机端扫码登录（最多等 5 分钟）\n");
-  await waitFor(async () => (await url()).startsWith("https://aily.feishu.cn/") && !(await ref('button "登录"')), { timeout: 300000, every: 4000, what: "扫码登录" });
+  await waitFor(loggedIn, { timeout: 300000, every: 4000, what: "扫码登录" });
   log("登录成功");
   await closeBrowser();
   headed = false;
@@ -122,9 +140,13 @@ async function login() {
 async function ensureAgent() {
   const state = JSON.parse(await readFile(STATE, "utf8").catch(() => "{}"));
   const id = argAgent || state.agentId;
-  if (id) {
+  if (id && !argv.includes("--new")) {
+    // 已经记录过工作伙伴：只复用，绝不因为页面没加载出来就新建一个重复的
     await open(`https://aily.feishu.cn/agents/${id}/detail/instruction`);
-    if ((await bodyText()).includes(AGENT_NAME)) { log(`使用已有工作伙伴 ${AGENT_NAME}（${id}）`); return id; }
+    const found = await waitFor(async () => (await bodyText()).includes(AGENT_NAME) || null, { timeout: 30000, every: 3000, what: "打开工作伙伴" }).catch(() => false);
+    if (found) { log(`使用已有工作伙伴 ${AGENT_NAME}（${id}）`); return id; }
+    if (!(await url()).startsWith("https://aily.feishu.cn/")) throw new Error("aily 登录已过期，请重新运行脚本扫码登录");
+    throw new Error(`打不开已有工作伙伴 ${id}（可能已被删除或没有权限）。确认要新建一个，请加 --new 重新运行`);
   }
   log(`新建工作伙伴「${AGENT_NAME}」`);
   const identity = await readFile(path.join(ROOT, "aily/IDENTITY.md"), "utf8");
@@ -144,7 +166,9 @@ async function ensureAgent() {
 
 async function connectorInstalled(agentId) {
   await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities/connector`);
-  return (await bodyText()).includes("销售易 CRM");
+  // 等连接器列表加载出来再判断，否则页面没渲染完会误判为「没装」
+  const text = await waitFor(async () => { const t = await bodyText(); return t.includes("连接器") && (t.includes("官方") || t.includes("销售易 CRM")) ? t : null; }, { timeout: 30000, every: 2500, what: "连接器页面" });
+  return text.includes("销售易 CRM");
 }
 
 async function ensureXsyConnector(agentId) {
@@ -187,9 +211,15 @@ async function uploadSkill(agentId, skill) {
   await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities`, 8000);
   await openMenu('button "添加技能"', 'menuitem "上传技能');
   await click('menuitem "上传技能');
-  await ab("upload", 'input[type=file][accept*=".zip"]', zip);
   // 首次上传直接到「请确认新版本信息」；同名技能会先弹「技能名称重复」→ 替换
-  const next = await waitFor(async () => (await ref('button "完成"')) ? "done" : (await ref('button "替换"')) ? "replace" : null, { timeout: 60000, what: "技能解析" });
+  // 上传框刚弹出时文件选择可能还没接上，没反应就重传（最多 3 次）
+  let next = null;
+  for (let i = 0; i < 3 && !next; i++) {
+    await sleep(2000);
+    await ab("upload", 'input[type=file][accept*=".zip"]', zip);
+    next = await waitFor(async () => (await ref('button "完成"')) ? "done" : (await ref('button "替换"')) ? "replace" : null, { timeout: 25000, what: "技能解析" }).catch(() => null);
+  }
+  if (!next) throw new Error("等待超时：技能解析（上传 3 次都没有反应）");
   if (next === "replace") {
     await click('button "替换"', { wait: 3000 });
     await waitFor(() => ref('button "完成"'), { timeout: 60000, what: "技能解析" });
