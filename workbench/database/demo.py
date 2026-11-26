@@ -53,7 +53,7 @@ def insert(table,columns,rows):
         old = ", ".join(f"{table}.{col}" for col in changed)
         new = ", ".join(f"EXCLUDED.{col}" for col in changed)
         conflict = f"DO UPDATE SET {assignments}, _updated_at=CURRENT_TIMESTAMP WHERE ({old}) IS DISTINCT FROM ({new})"
-    print(f"INSERT INTO {table} ({columns}) VALUES\n{values}\nON CONFLICT (id) {conflict};")
+    print(f"INSERT INTO {table} ({columns}) VALUES\n{values}\nON CONFLICT (source,id) {conflict};")
 def build_deals(i, sid, primary, secondary, base):
     rows = []
     for j in range(10):

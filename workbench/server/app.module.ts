@@ -9,7 +9,13 @@ import { ViewModule } from './modules/view/view.module';
 @Module({
   imports: [
     // 平台 Module，提供平台能力
-    PlatformModule.forRoot(),
+    PlatformModule.forRoot({
+      mcp: {
+        serverName: 'sales-persona',
+        instructions:
+          '同步已确认的销售拜访时，先用 persona_ingested 核对已有拜访和在跟商机，再用 persona_ingest 写入销售、商机和拜访。按逐条返回的原因修正记录后可重复提交。',
+      },
+    }),
     // ====== @route-section: business-modules START ======
     PersonaModule,
     // ====== @route-section: business-modules END ======

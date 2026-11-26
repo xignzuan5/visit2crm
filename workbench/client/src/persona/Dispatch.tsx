@@ -14,15 +14,29 @@ const blank = {
   competitor: '',
   need: '',
 };
-export function Dispatch({ profiles }: { profiles: Profile[] }) {
+export function Dispatch({
+  profiles,
+  real,
+}: {
+  profiles: Profile[];
+  real: boolean;
+}) {
   const [form, setForm] = useState(blank),
     [order, setOrder] = useState<Order | null>(null),
     [visit, setVisit] = useState<{ v: Visit; company: string } | null>(null);
   const industries = [
-    ...new Set(profiles.flatMap((p) => p.deals.map((d) => d.industry))),
+    ...new Set(
+      profiles.flatMap((p) =>
+        p.deals.flatMap((d) => (d.industry ? [d.industry] : [])),
+      ),
+    ),
   ].sort();
   const rivals = [
-    ...new Set(profiles.flatMap((p) => p.deals.map((d) => d.competitor))),
+    ...new Set(
+      profiles.flatMap((p) =>
+        p.deals.flatMap((d) => (d.competitor ? [d.competitor] : [])),
+      ),
+    ),
   ].sort();
   const results = order ? recommend(profiles, order) : [];
   const change = (key: keyof typeof blank, value: string) => {
@@ -37,11 +51,11 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
     <label>
       {label}
       <select
-        required
+        required={!real || key === 'stage'}
         value={form[key]}
         onChange={(e) => change(key, e.target.value)}
       >
-        <option value="">请选择</option>
+        <option value="">{real && key === 'size' ? '未填' : '请选择'}</option>
         {values.map((v) => (
           <option key={v}>{v}</option>
         ))}
@@ -66,7 +80,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                 ...form,
                 industry: form.industry.trim(),
                 need: form.need.trim(),
-                amount: Number(form.amount),
+                amount: form.amount ? Number(form.amount) : null,
               });
           }}
         >
@@ -94,7 +108,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
             <label>
               所属行业
               <input
-                required
+                required={!real}
                 list="industries"
                 placeholder="选择或输入行业"
                 value={form.industry}
@@ -110,7 +124,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
               预计金额（万元）
               <input
                 type="number"
-                required
+                required={!real}
                 min="0.01"
                 step="0.01"
                 placeholder="如 85"
@@ -148,7 +162,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
           <button
             className="solid"
             type="submit"
-            disabled={!form.industry.trim() || !form.need.trim()}
+            disabled={(!real && !form.industry.trim()) || !form.need.trim()}
           >
             <ScanSearch size={17} /> 匹配销售
           </button>
@@ -172,7 +186,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                 .sort((a, b) => b.score! - a.score!)[0];
               const precedent = reasons.find((r) => r.deal)?.deal;
               const record = precedent
-                ? `有${precedent.industry}客户${precedent.company}的${precedent.amount}万元${precedent.outcome}记录`
+                ? `有${precedent.industry ?? '行业未填的'}客户${precedent.company}的${precedent.amount == null ? '金额未填的' : precedent.amount + '万元'}${precedent.outcome}记录`
                 : reasons[0].label;
               const focus = strength
                 ? `${strength.evidence.length}次拜访可回看其${strength.name}的做法`
@@ -187,7 +201,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                     </div>
                     <Link
                       aria-label={'查看' + p.name + '的画像'}
-                      to={'/person/' + p.id}
+                      to={'/person/' + encodeURIComponent(p.id)}
                     >
                       <ArrowUpRight size={17} />
                     </Link>
@@ -199,7 +213,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                         className="textbtn"
                         to={
                           '/person/' +
-                          p.id +
+                          encodeURIComponent(p.id) +
                           '?axis=' +
                           p.axes.indexOf(strength)
                         }
@@ -216,9 +230,13 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                           <b>{r.label}</b>
                           {r.deal && (
                             <span>
-                              {r.deal.company} · {r.deal.industry} ·{' '}
-                              {r.deal.amount} 万 · {r.deal.size} ·{' '}
-                              {r.deal.outcome} · {r.deal.competitor}
+                              {r.deal.company} · {r.deal.industry ?? '行业未填'}{' '}
+                              ·{' '}
+                              {r.deal.amount == null
+                                ? '金额未填'
+                                : r.deal.amount + ' 万'}{' '}
+                              · {r.deal.size ?? '规模未填'} · {r.deal.outcome} ·{' '}
+                              {r.deal.competitor ?? '竞争对手未填'}
                             </span>
                           )}
                           {r.visit && (
@@ -241,7 +259,7 @@ export function Dispatch({ profiles }: { profiles: Profile[] }) {
                             </>
                           )}
                           {!r.deal && !r.visit && (
-                            <span>统计已结案商机，样本截至演示快照日。</span>
+                            <span>统计已结案商机，样本截至当前统计日。</span>
                           )}
                         </li>
                       ))}

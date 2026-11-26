@@ -47,8 +47,14 @@ export function makeProfiles(data: Snapshot) {
       axes,
       closed,
       historicWins,
-      industries: frequencies(historicWins.map((d) => d.industry)),
-      amounts: frequencies(historicWins.map((d) => bucket(d.amount))),
+      industries: frequencies(
+        historicWins.flatMap((d) => (d.industry ? [d.industry] : [])),
+      ),
+      amounts: frequencies(
+        historicWins.flatMap((d) =>
+          d.amount == null ? [] : [bucket(d.amount)],
+        ),
+      ),
       active: deals.filter((d) => d.outcome === '在跟').length,
       won,
       closedCount: recent.length,
@@ -59,7 +65,7 @@ export function makeProfiles(data: Snapshot) {
 export type Profile = ReturnType<typeof makeProfiles>[number];
 export interface Order {
   industry: string;
-  amount: number;
+  amount: number | null;
   size: string;
   stage: string;
   competitor: string;
@@ -102,21 +108,37 @@ export function recommend(profiles: Profile[], order: Order) {
             deal: hits[0],
           });
       }
-      historical('同行业赢单', 23, won, (d) => d.industry === order.industry);
+      historical(
+        '同行业赢单',
+        23,
+        won,
+        (d) => !!d.industry && d.industry === order.industry,
+      );
       historical(
         '同金额区间赢单',
         16,
         won,
-        (d) => bucket(d.amount) === bucket(order.amount),
+        (d) =>
+          order.amount != null &&
+          d.amount != null &&
+          bucket(d.amount) === bucket(order.amount),
       );
-      historical('同规模赢单', 10, won, (d) => d.size === order.size);
+      historical(
+        '同规模赢单',
+        10,
+        won,
+        (d) => !!d.size && d.size === order.size,
+      );
       const rivals = order.competitor
         .split(/[,，、；;\n]/)
         .map((x) => x.trim().toLowerCase())
         .filter(Boolean);
       if (rivals.length)
-        historical('交手经验', 12, p.closed, (d) =>
-          rivals.includes(d.competitor.toLowerCase()),
+        historical(
+          '交手经验',
+          12,
+          p.closed,
+          (d) => !!d.competitor && rivals.includes(d.competitor.toLowerCase()),
         );
       const axis =
         order.stage === stages[0] ? 0 : order.stage === stages[1] ? 5 : 2;

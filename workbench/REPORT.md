@@ -1,5 +1,76 @@
 # 销售画像工作台交付报告
 
+## 第三轮：接真实拜访
+
+### 发布与连接
+
+已发布，线上提交为 `49b6e67`。发布理由为「为本人发布已确认拜访的 MCP 同步工具及真实与演示数据切换」。开通 MCP 后再次核对，可见范围为当前登录用户本人 1 人、部门 0 个、群组 0 个，访问需要登录。
+
+**MCP 连接地址**：在本机 `config/app.json` 的 `workbench.mcp_url`（租户地址，不进公开仓库）。以后也可以用 `lark-cli apps +mcp-get --app-id <应用ID> --as user` 取（稳定版 lark-cli 还没有这条命令，见下文）。
+
+**Claude Code**
+
+```sh
+claude mcp add --transport http sales-persona <连接地址>
+claude mcp login sales-persona
+```
+
+**Codex**
+
+```sh
+codex mcp add sales-persona --url "<连接地址>"
+codex mcp login sales-persona
+```
+
+本机与公开稳定版 CLI 均未收录 `+mcp-get`。本轮在临时目录用上游已公开的命令实现构建了独立 CLI，以用户身份调用。发布后的首次 `+mcp-get` 返回 `40906 app MCP is not enabled`，调用 `+mcp-key-create` 准备凭证后，`+mcp-get` 成功返回以上地址。平台下发的连接配置只有 URL，实际地址与脱敏显示一致。客户端首次连接需要由本人完成飞书授权，本轮验收到平台回读与开发态工具实调。[上游 CLI 命令实现](https://github.com/larksuite/cli/pull/2736)
+
+**飞书工作伙伴接入本应用 MCP**　未确认。项目的 `mcp-guide` 提供了 Claude Code 和 Codex 的注册及登录命令，未给出飞书工作伙伴的具体接入步骤。[项目接入指南](https://github.com/larksuite/cli)
+
+### 调用方如何同步
+
+1. 调用 `persona_ingested`，按 `nextCursor` 翻完全部页，保存拜访的编号和更新时间，以及仍在跟的商机编号。
+2. 用 `persona_ingest` 提交销售确认过的完整记录。同一批按销售、商机、拜访的顺序处理，因此可以把新拜访及其依赖放在一起。允许单独更新商机输赢。
+3. 逐条检查返回。内容相同的记录可直接跳过。校验失败的记录要按字段路径修正。一次请求中已成功的条目可安全重放。
+
+| 工具 | 入参 | 返回 |
+| --- | --- | --- |
+| `persona_ingest` | 可选数组 `sellers`、`deals`、`visits`，每项带调用方提供的稳定字符串 `id` | `written[]` 是新增或内容有变化的条目，`skipped[]` 是内容相同或被拒绝的条目。每项含 `collection`、从零开始的数组下标 `index`、`id`、`reason`。缺少可读编号时 `id` 为 null。 |
+| `persona_ingested` | 首页可传 `{}`。`limit` 为每页两类记录的合计条数，默认 20，范围 1–100。后续传上页的 `cursor = nextCursor`。 | `visits[{id, updatedAt}]`、`openDealIds[]`、`nextCursor`。时间为 UTC ISO 8601。任一数组都可能为空，以游标为 null 判断结束。 |
+
+**记录契约**
+
+- 销售传 `id / name`，编号取销售易用户 ID。
+- 商机传 `id / sellerId / company / stage / outcome`，编号取销售易商机 ID。结果为「在跟」「赢单」「输单」。`industry / amount / size / competitor / closed` 可省略或传 null。金额单位为万元，允许正小数，结案日期用 `YYYY-MM-DD`。更新采用整条覆盖，刷新输赢时应一并传回已知字段。
+- 拜访传 `id / dealId / title / date / turns / fields`，编号取台账记录 ID，日期用 `YYYY-MM-DD`。`turns[]` 逐句传 `role / text` 及可选 `signal`。每个 `fields` 对象必须含 `pain / metrics / economic_buyer / decision_criteria / decision_process / paper_process / champion / competition` 八个键，每项均有布尔值 `known` 和字符串 `summary / quote`。未知项可传空字符串。[共享类型](./shared/persona.ts) · [下游使用说明](./server/mcp/skills/persona-sync/SKILL.md)
+
+**逐条校验**
+
+说话人仅限客户和销售。已知项需要非空摘要，且引文必须在同一句客户发言中逐字出现。销售自己的复述无法充当引文。商机须引用真实销售，拜访须引用真实商机。相同编号可分别存在于真实与演示来源，数据库的主键和外键都包含来源。
+
+| 标注 | 可接受的位置 |
+| --- | --- |
+| `next` | 客户确认下一步的发言 |
+| `comparison` | 紧跟竞争项客户引文的销售发言。若引文重复出现，沿用评分函数首次定位的位置。 |
+| `technical_question` | 一次拜访标记一处用于取证的客户技术提问。其余原话可保留在逐字稿中。 |
+| `technical_answer` | 紧跟该客户提问的销售解法 |
+| `validated` | 紧跟该销售解法的客户验证 |
+
+例如，第二条拜访的痛点引文对不上时，返回中对应条目的 `collection` 为 `visits`，`index` 为 1，原因包含 `fields.pain.quote`。相同内容重传保持拜访更新时间。修改拜访标题或内容后，原编号的更新时间会推进。
+
+### 页面与统计日
+
+首次打开时，只要存在真实拜访，页面就默认显示真实数据，统计日取北京时间当天。右上角可切换「真实数据 / 演示数据」。没有真实拜访时只显示演示标记，统计日沿用 2026-11-25。演示销售、商机和拜访不会进入真实画像。真实商机缺少行业、金额、规模、竞争对手时，详情显示「未填」，缺失项不参与派单匹配。
+
+`GET /api/persona` 与 `GET /api/persona/dimension-summary?days=30` 共用可选参数 `source=real|demo`；省略时使用默认来源。两者都返回 `source / hasRealVisits / asOf`。维度归纳仍支持 30 天和 90 天。评分、归纳及派单权重沿用第二轮。
+
+### 验收
+
+开发态通过 MCP 协议调了两个工具。一批虚构数据中，销售、商机、一条合格拜访写入成功，另一条因客户引文失配被跳过。回读、分页、相同内容重写、修订拜访、刷新商机输赢、缺少销售或商机的失败分支均已验证。无登录身份的直接调用收到 `MCP_USER_REQUIRED`。浏览器验证了默认来源、来源切换、拜访详情的四项空值、两种来源的维度归纳，以及仅凭客户需求命中的派单。开发库仅按本次虚构编号清理，清理后回读为空，页面恢复为 6 张演示销售卡。自动测试通过 6 项，前后端类型检查、ESLint 和 Stylelint 已通过。
+
+生产构建通过，已核对产物包含工具和同步说明。线上三张表均只有演示行，共 6 名销售、60 个商机、46 次拜访。去掉新增的来源列后，按主键排序计算的三张表全行摘要分别与发布前相等。三张表的真实来源写入策略均已回读，开发到线上待迁移项为零。
+
+---
+
 ## 第二轮改动
 
 本次修订已发布（妙搭仓库提交 `cf8c7ac`），六维缺口和关注建议只计已涉及前提但缺少后续记录的拜访，未涉及的另列，同时过滤高度相似的代表性原话，并为关键人覆盖补充了不同的演示说法。

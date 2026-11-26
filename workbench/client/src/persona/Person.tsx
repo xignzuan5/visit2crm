@@ -7,7 +7,12 @@ import {
   X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { fieldNames, type FieldKey, type Visit } from '../../../shared/persona';
+import {
+  fieldNames,
+  type Deal,
+  type FieldKey,
+  type Visit,
+} from '../../../shared/persona';
 import { customerQuote, type Profile } from './model';
 import { Avatar, dateLabel } from './Board';
 import { Radar } from './Radar';
@@ -15,11 +20,13 @@ import { Radar } from './Radar';
 export function VisitDetail({
   v,
   company,
+  deal,
   turnIndex,
   onClose,
 }: {
   v: Visit;
   company: string;
+  deal?: Deal;
   turnIndex?: number;
   onClose: () => void;
 }) {
@@ -47,6 +54,13 @@ export function VisitDetail({
             {company} · {v.title}
           </h2>
           <p>{dateLabel(v.date)}</p>
+          {deal && (
+            <p>
+              行业 {deal.industry ?? '未填'} · 金额{' '}
+              {deal.amount == null ? '未填' : deal.amount + ' 万元'} · 规模{' '}
+              {deal.size ?? '未填'} · 竞争对手 {deal.competitor ?? '未填'}
+            </p>
+          )}
         </div>
         <button className="iconbtn" aria-label="关闭拜访记录" onClick={onClose}>
           <X size={19} />
@@ -213,6 +227,7 @@ export function Person({
         <VisitDetail
           v={visit}
           company={company(visit)}
+          deal={p.deals.find((d) => d.id === visit.dealId)}
           onClose={() => setVisit(null)}
         />
       )}

@@ -31,15 +31,18 @@ export interface Deal {
   id: string;
   sellerId: string;
   company: string;
-  industry: string;
-  amount: number;
-  size: string;
+  industry: string | null;
+  amount: number | null;
+  size: string | null;
   stage: string;
   outcome: '在跟' | '赢单' | '输单';
-  competitor: string;
+  competitor: string | null;
   closed: string | null;
 }
+export type DataSource = 'demo' | 'real';
 export interface Snapshot {
+  source: DataSource;
+  hasRealVisits: boolean;
   sellers: { id: string; name: string }[];
   deals: Deal[];
   visits: Visit[];

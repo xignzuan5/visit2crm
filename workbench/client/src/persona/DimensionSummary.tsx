@@ -1,3 +1,4 @@
+import type { DataSource, Snapshot } from '../../../shared/persona';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpenText,
@@ -101,7 +102,14 @@ function Sources({
     </dialog>
   );
 }
-export function DimensionSummaryPage() {
+type SourceMeta = Pick<Snapshot, 'source' | 'hasRealVisits'>;
+export function DimensionSummaryPage({
+  source,
+  onLoaded,
+}: {
+  source?: DataSource;
+  onLoaded: (meta: SourceMeta) => void;
+}) {
   const [days, setDays] = useState<WindowDays>(30),
     [data, setData] = useState<TeamSummary | null>(null);
   const [failed, setFailed] = useState(false),
@@ -117,20 +125,26 @@ export function DimensionSummaryPage() {
     setFailed(false);
     setList(null);
     setDetail(null);
-    axiosForBackend<TeamSummary>({
+    axiosForBackend<TeamSummary & SourceMeta>({
       url: '/api/persona/dimension-summary',
       method: 'GET',
-      params: { days },
+      params: { days, source },
       signal: abort.signal,
     })
       .then(({ data: summary }) => {
-        if (!abort.signal.aborted) setData(summary);
+        if (!abort.signal.aborted) {
+          setData(summary);
+          onLoaded({
+            source: summary.source,
+            hasRealVisits: summary.hasRealVisits,
+          });
+        }
       })
       .catch(() => {
         if (!abort.signal.aborted) setFailed(true);
       });
     return () => abort.abort();
-  }, [days, attempt]);
+  }, [days, attempt, source, onLoaded]);
   const windowData = data?.days === days ? data : null;
   const visits = windowData?.visits ?? [],
     all = visits.map((s) => s.visit.id);

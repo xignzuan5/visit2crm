@@ -21,14 +21,20 @@ export function Avatar({ p }: { p: Profile }) {
 export function Board({
   profiles,
   asOf,
+  source,
 }: {
   profiles: Profile[];
   asOf: string;
+  source: 'real' | 'demo';
 }) {
   const [industry, setIndustry] = useState(''),
     [sort, setSort] = useState('');
   const industries = [
-    ...new Set(profiles.flatMap((p) => p.deals.map((d) => d.industry))),
+    ...new Set(
+      profiles.flatMap((p) =>
+        p.deals.flatMap((d) => (d.industry ? [d.industry] : [])),
+      ),
+    ),
   ].sort();
   const list = profiles
     .filter((p) => !industry || p.deals.some((d) => d.industry === industry))
@@ -134,7 +140,11 @@ export function Board({
             <Link
               key={p.id}
               className="member"
-              to={'/person/' + p.id + (sort === '' ? '' : '?axis=' + sort)}
+              to={
+                '/person/' +
+                encodeURIComponent(p.id) +
+                (sort === '' ? '' : '?axis=' + sort)
+              }
             >
               <div className="memberbody">
                 <div>
@@ -175,8 +185,9 @@ export function Board({
         })}
       </div>
       <div className="dateline">
-        <CalendarDays size={14} /> 演示快照截至 {dateLabel(asOf)} ·
-        行业筛选按全部商机经历
+        <CalendarDays size={14} />{' '}
+        {source === 'real' ? '北京时间统计日' : '演示快照截至'}{' '}
+        {dateLabel(asOf)} · 行业筛选按全部商机经历
       </div>
     </>
   );

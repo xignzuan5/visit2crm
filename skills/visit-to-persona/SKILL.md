@@ -15,14 +15,15 @@ metadata:
 所需能力：
 - `lark-cli`（user 身份）：读台账、妙记、云文档。
 - 「销售易 CRM」连接器：**只读**，用 `entity-detail`、`entity-search`、`user-detail`、`opportunity-stageInfo`、`metadata-entityDescribe`。
-- 「销售画像工作台」MCP：工具 `persona_ingested`（查已写过的）和 `persona_ingest`（写入）。连接方法见仓库 `workbench/README.md`。**入参以工具声明的 schema 为准**，下文说的字段名和它不一致时按工具的来。
+- 「销售画像工作台」MCP（服务名 `{{workbench.mcp_name}}`，地址 `{{workbench.mcp_url}}`）：工具 `persona_ingested`（查已写过的）和 `persona_ingest`（写入）。连接方法见仓库 `workbench/README.md`。**入参以工具声明的 schema 为准**，下文说的字段名和它不一致时按工具的来。
+  连不上时：401 是还没登录授权；403 是当前账号不在工作台的可见范围，找工作台负责人加人，不要反复重试。
 
 台账位置：Base `{{recording_base.base_token}}`（「录音的汇总统计」），表 `{{recording_base.ledger_table_id}}`（「拜访跟进台账」）。
 （`{{recording_base.…}}` 由部署脚本从 `config/app.json` 的 `recording_base` 段填入。如果看到的还是 `{{…}}` 原样，就去 `config/app.json` 里取对应的值。）
 
 ## 1. 找出要送的拜访
 
-1. 调 `persona_ingested`，拿到已经写过的拜访编号，以及结果还是「在跟」的商机编号。
+1. 调 `persona_ingested`，拿到已经写过的拜访编号（`visits[].id`），以及结果还是「在跟」的商机编号（`openDealIds`）。结果分页：把 `nextCursor` 作为下一次的 `cursor` 传回去，直到 `nextCursor` 为 null。
 2. 读台账，只取 `处理状态=已写入` 的记录：
    ```bash
    lark-cli base +record-list --base-token {{recording_base.base_token}} --table-id {{recording_base.ledger_table_id}} \
@@ -80,6 +81,8 @@ metadata:
 - 负责人：`user-detail` 取姓名。销售编号用销售易用户 ID，商机编号用销售易商机 ID。
 
 `persona_ingested` 列出的「在跟」商机也要重读一遍，状态变了（赢单/输单）就跟这次的数据一起送，工作台的赢单率和派单依据靠它。
+
+商机是**整条覆盖**：每次送商机都要把上面读到的字段全部带上，不能只送变了的那一项，否则没带的字段会被清空。
 
 ## 6. 写进工作台
 

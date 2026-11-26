@@ -14,15 +14,39 @@
 
 ## 数据存在哪
 
-- 数据存在妙搭应用自带的 PostgreSQL 里，共三张表：`persona_sellers`（销售）、`persona_deals`（商机）、`persona_visits`（拜访：双方逐字发言 + MEDDPICC 八项）。表结构见 [database/schema.sql](./database/schema.sql)。
-- **现在是虚构的演示数据**：6 名销售、60 个商机、46 次拜访，由 [database/demo.py](./database/demo.py) 生成，人名和公司名都是编的。
-- **还没有接销售易，也没有接妙记。** 工作台不读也不写销售易。所有分数都按 [shared/observations.ts](./shared/observations.ts) 的规则从逐字稿算出来，不是手填的。
+- 数据存在妙搭应用自带的 PostgreSQL 里，共三张表：`persona_sellers`（销售）、`persona_deals`（商机）、`persona_visits`（拜访：双方逐字发言 + MEDDPICC 八项）。表结构见 [database/schema.sql](./database/schema.sql)。每条数据标了来源：演示或真实。
+- **演示数据**：6 名销售、60 个商机、46 次拜访，由 [database/demo.py](./database/demo.py) 生成，人名和公司名都是编的。
+- **真实数据**：由技能 [`visit-to-persona`](../skills/visit-to-persona/SKILL.md) 通过本应用的 MCP 工具写进来（见下一节）。工作台自己不连销售易和妙记，也不写销售易。
+- 有真实拜访时页面默认显示真实数据，右上角可以切回演示数据。
+- 所有分数都按 [shared/observations.ts](./shared/observations.ts) 的规则从逐字稿算出来，不是手填的。
 
 ## 和 visit2crm 的关系
 
-visit2crm 负责把录音豆拜访整理好、经销售确认后写进销售易。工作台用的是同一批拜访：逐字稿加 MEDDPICC 提取结果。以后接真实数据时，把确认过的拜访转成 [shared/persona.ts](./shared/persona.ts) 里的数据结构写进上面三张表，画像、归纳和派单的计算都不用改。
+```
+录音豆 → 妙记 → visit-to-xsy（销售确认）→ 销售易
+                      │ 台账：处理状态=已写入 + 销售确认过的 MEDDPICC
+                      ▼
+              visit-to-persona（每天或手动）：读逐字稿、分说话人、做五种对话标注、从销售易读商机
+                      │ MCP：persona_ingest
+                      ▼
+              销售画像工作台：校验 → 存库 → 按规则算画像、维度归纳、派单
+```
 
-后端接口（需登录）：
+**MCP 工具**（服务名 `sales-persona`，只有工作台可见范围内的人能调）：
+
+| 工具 | 作用 |
+| --- | --- |
+| `persona_ingest` | 写入销售、商机、拜访，按编号覆盖，可重复调用。逐条校验，不合格的那条不写并说明原因：说话人只能是客户/销售；已知的 MEDDPICC 项，引文必须逐字出现在一句客户发言里；五种对话标注的位置要和评分规则一致；拜访要挂在已有商机上 |
+| `persona_ingested` | 分页列出已写入的真实拜访编号和更新时间，以及还在跟的商机编号 |
+
+连接（地址是租户地址，存在本机 `config/app.json` 的 `workbench.mcp_url`，不进公开仓库）：
+
+```bash
+claude mcp add --transport http sales-persona <连接地址>
+claude mcp login sales-persona     # 浏览器里飞书授权一次
+```
+
+后端接口（需登录，都可带 `source=real|demo`）：
 
 | 接口 | 返回 |
 | --- | --- |
@@ -33,11 +57,12 @@ visit2crm 负责把录音豆拜访整理好、经销售确认后写进销售易�
 
 | 路径 | 内容 |
 | --- | --- |
-| `server/modules/persona/` | 接口和维度归纳的计算 |
+| `server/modules/persona/` | 接口、写入校验（`ingest.ts`）和维度归纳的计算 |
+| `server/mcp/` | MCP 工具和随工具下发的使用说明 |
 | `shared/` | 六维评分规则、数据结构、接口类型（前后端共用） |
 | `client/src/persona/` | 三个页面 |
 | `database/` | 表结构和演示数据生成器 |
-| `tests/` | 维度归纳的规则测试 |
+| `tests/` | 维度归纳和写入校验的测试 |
 
 ## 部署和同步
 

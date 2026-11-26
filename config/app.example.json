@@ -36,5 +36,9 @@
     "recording_table_id": "tblxxxxxxxxxxxxx",
     "ai_result_table_id": "tblxxxxxxxxxxxxx",
     "ledger_table_id": "tblxxxxxxxxxxxxx"
+  },
+  "workbench": {
+    "mcp_name": "sales-persona",
+    "mcp_url": "https://<your-tenant>.feishuapp.com/mcp/<app_id>"
   }
 }

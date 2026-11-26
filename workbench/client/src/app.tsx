@@ -14,10 +14,11 @@ import {
   Routes,
   useLocation,
   useParams,
+  useNavigate,
   useSearchParams,
 } from 'react-router-dom';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
-import type { Snapshot } from '../../shared/persona';
+import type { DataSource, Snapshot } from '../../shared/persona';
 import { makeProfiles, type Profile } from './persona/model';
 import { Board } from './persona/Board';
 import { Person } from './persona/Person';
@@ -47,8 +48,15 @@ export default function Workbench() {
   const [data, setData] = useState<Snapshot | null>(null),
     [failed, setFailed] = useState(false),
     [attempt, retry] = useState(0);
+  const [source, setSource] = useState<DataSource>();
+  const [summaryMeta, setSummaryMeta] = useState<Pick<
+    Snapshot,
+    'source' | 'hasRealVisits'
+  > | null>(null);
+  const navigate = useNavigate();
   const path = useLocation().pathname;
   const summaryPage = /^\/dimensions\/?$/.test(path);
+  const meta = summaryPage ? summaryMeta : data;
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [path]);
@@ -56,7 +64,11 @@ export default function Workbench() {
     if (summaryPage || data) return;
     let active = true;
     setFailed(false);
-    axiosForBackend<Snapshot>({ url: '/api/persona', method: 'GET' })
+    axiosForBackend<Snapshot>({
+      url: '/api/persona',
+      method: 'GET',
+      params: { source },
+    })
       .then(({ data: s }) => {
         if (
           !Array.isArray(s.sellers) ||
@@ -72,7 +84,7 @@ export default function Workbench() {
     return () => {
       active = false;
     };
-  }, [attempt, summaryPage, data]);
+  }, [attempt, summaryPage, data, source]);
   const profiles = React.useMemo(
     () => (data ? makeProfiles(data) : []),
     [data],
@@ -105,10 +117,27 @@ export default function Workbench() {
               派单推荐
             </NavLink>
           </nav>
-          <span className="demoflag">
-            <FlaskConical size={14} />
-            演示数据
-          </span>
+          {meta?.hasRealVisits ? (
+            <select
+              aria-label="数据来源"
+              className="demoflag"
+              value={meta.source}
+              onChange={(e) => {
+                setData(null);
+                setSummaryMeta(null);
+                setSource(e.target.value as DataSource);
+                if (path.startsWith('/person/')) navigate('/');
+              }}
+            >
+              <option value="real">真实数据</option>
+              <option value="demo">演示数据</option>
+            </select>
+          ) : meta ? (
+            <span className="demoflag">
+              <FlaskConical size={14} />
+              演示数据
+            </span>
+          ) : null}
         </div>
       </header>
       <main>
@@ -123,7 +152,11 @@ export default function Workbench() {
                 : '团队看板'}
         </div>
         {summaryPage ? (
-          <DimensionSummaryPage />
+          <DimensionSummaryPage
+            key={source}
+            source={source}
+            onLoaded={setSummaryMeta}
+          />
         ) : failed ? (
           <section className="panel empty">
             <h2>暂时无法读取应用数据库</h2>
@@ -139,7 +172,13 @@ export default function Workbench() {
           <Routes>
             <Route
               path="/"
-              element={<Board profiles={profiles} asOf={data.asOf} />}
+              element={
+                <Board
+                  profiles={profiles}
+                  asOf={data.asOf}
+                  source={data.source}
+                />
+              }
             />
             <Route
               path="/person/:id"
@@ -147,7 +186,9 @@ export default function Workbench() {
             />
             <Route
               path="/dispatch"
-              element={<Dispatch profiles={profiles} />}
+              element={
+                <Dispatch profiles={profiles} real={data.source === 'real'} />
+              }
             />
             <Route path="*" element={<Link to="/">返回团队看板</Link>} />
           </Routes>

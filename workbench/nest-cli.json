@@ -15,6 +15,11 @@
     },
     "assets": [
       {
+        "include": "mcp/skills/*/SKILL.md",
+        "outDir": "dist/server",
+        "watchAssets": true
+      },
+      {
         "include": "capabilities/**/*.json",
         "outDir": "dist/server",
         "watchAssets": true
