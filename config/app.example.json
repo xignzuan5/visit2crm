@@ -10,14 +10,31 @@
     "mcp_url": "https://mcp.xiaoshouyi.com/mcp",
     "mcp_token_file": ".secrets/xsy-mcp-token.json",
     "web_base": "https://crm.xiaoshouyi.com",
-    "activity_entity_types": { "拜访": 0, "线上会议": 0, "电话": 0 },
+    "activity_entity_types": {
+      "拜访": 0,
+      "线上会议": 0,
+      "电话": 0
+    },
     "api_base": "https://api.xiaoshouyi.com",
     "token_file": ".secrets/xsy-token.json",
     "stages": []
   },
   "users": [
-    { "feishu_open_id": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "name": "<销售姓名>", "xsy_user_id": 0, "xsy_dept_id": 0 }
+    {
+      "feishu_open_id": "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "name": "<销售姓名>",
+      "xsy_user_id": 0,
+      "xsy_dept_id": 0
+    }
   ],
   "match_only_own_accounts": true,
-  "timeouts": { "remind_hours": 24 }
+  "timeouts": {
+    "remind_hours": 24
+  },
+  "recording_base": {
+    "base_token": "<录音豆「录音的汇总统计」base_token>",
+    "recording_table_id": "tblxxxxxxxxxxxxx",
+    "ai_result_table_id": "tblxxxxxxxxxxxxx",
+    "ledger_table_id": "tblxxxxxxxxxxxxx"
+  }
 }

@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildSkill } from "./build-skills.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -203,10 +204,8 @@ async function ensureXsyConnector(agentId) {
 }
 
 async function uploadSkill(agentId, skill) {
-  const zip = path.join(ROOT, `.cache/${skill}.zip`);
-  await mkdir(path.dirname(zip), { recursive: true });
-  await rm(zip, { force: true });
-  await run("zip", ["-r", zip, skill], { cwd: path.join(ROOT, "skills") });
+  // 技能里的 {{…}} 占位符（表格编号等）在这里按 config/app.json 填好再打包
+  const zip = await buildSkill(skill);
   log(`上传技能 ${skill}`);
   await open(`https://aily.feishu.cn/agents/${agentId}/detail/abilities`, 8000);
   await openMenu('button "添加技能"', 'menuitem "上传技能');

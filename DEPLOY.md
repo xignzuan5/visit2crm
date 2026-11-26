@@ -26,7 +26,7 @@ XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node sc
 
 1. 新建工作伙伴「拜访录入助手」（个人使用）
 2. 安装「销售易 CRM」连接器，用上面的销售易账号完成 OAuth 授权（`XSY_ENV`：`production` / `sandbox`）
-3. 上传技能 `skills/visit-to-xsy`（拜访录入）和 `skills/xsy-sales-assistant`（查商机、快到期/久未跟进、拜访准备、记一笔、晨报）
+3. 上传技能 `skills/visit-to-xsy`（拜访录入）和 `skills/xsy-sales-assistant`（查商机、快到期/久未跟进、拜访准备、记一笔、晨报）。技能里的表格编号在仓库里是 `{{recording_base.…}}` 占位符，上传前按 `config/app.json` 的 `recording_base` 段填好（缺了会直接报错，不会把占位符传上去）
 4. 写入提示词：伙伴档案 `aily/IDENTITY.md`、行为准则 `aily/SOUL.md`
 5. 加 `--subscribe` 时，为**当前登录账号**开启 `aily/automations.json` 里的两个自动化（已存在则更新）
 6. 记下工作伙伴的飞书对话链接（给介绍卡片的按钮用）
@@ -51,7 +51,7 @@ XSY_ENV=production XSY_USER=<销售易账号> XSY_PASS=<销售易密码> node sc
 
 1. aily.feishu.cn → 市场 → 工作伙伴 →「+ 自定义工作伙伴」→「个人使用」→ 描述填 `aily/IDENTITY.md` 里「身份」那一句 → 创建。
 2. 详情 → 能力 → 连接器 →「+」→ 搜「销售易 CRM」→ 安装 → 选环境 → 登录授权；确认同时有官方「飞书妙记」。
-3. 能力 → 技能 →「+」→「上传技能」→ 分别上传 `skills/visit-to-xsy`、`skills/xsy-sales-assistant` 打成的 zip。
+3. 能力 → 技能 →「+」→「上传技能」→ 先运行 `node scripts/build-skills.mjs visit-to-xsy xsy-sales-assistant`，再分别上传生成的 `.cache/visit-to-xsy.zip`、`.cache/xsy-sales-assistant.zip`。**不要直接打包 `skills/` 目录**，那里的表格编号是占位符。
 4. 指令 → 伙伴档案 / 行为准则 →「编辑个性化」→ 全部替换为 `aily/IDENTITY.md` / `aily/SOUL.md` → 保存。
 5. 自动化 → 新建 → 手动创建，按 `aily/automations.json` 填（定时：每隔 1 小时 / 自定义 cron `0 30 8 * * 1-5`）。
 

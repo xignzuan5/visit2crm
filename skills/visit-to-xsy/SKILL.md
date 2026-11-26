@@ -1,6 +1,6 @@
 ---
 name: visit-to-xsy
-version: 1.1.0
+version: 1.2.0
 description: "把录音豆/飞书妙记里的客户拜访整理成销售易跟进记录，按 MEDDPICC 提取商机情报（痛点、决策人、决策流程、竞争等），并在有明确依据时推进商机阶段、回填预算/联系人角色/竞争对手。当销售说「把刚才的拜访录进销售易」「整理一下这条妙记写到CRM」「今天的拜访帮我同步销售易」、转发妙记链接，或定时任务要求处理新的拜访妙记时使用。"
 metadata:
   requires:
@@ -27,9 +27,10 @@ metadata:
 
 **录音豆的录音不一定对当前账号开放妙记读取权限。** 录音豆由别人录制时（录制人不是任务发起人），妙记 owner 是那位录制人，`minutes +detail` 会返回 `No read permission for minute ...`。这种情况下**不要就此跳过**——录音豆自己的同步流程会把录音写进多维表格，那里有完整内容且通常可读：
 
-- Base「录音的汇总统计」`LkbHbVAaAaKKSrsNcxTc8IuVn7k`，表「**录音信息整理**」`tblHWbqq9niP6QzH`。
+- Base「录音的汇总统计」`{{recording_base.base_token}}`，表「**录音信息整理**」`{{recording_base.recording_table_id}}`。
+  （本技能里的 `{{recording_base.…}}` 由部署脚本从 `config/app.json` 的 `recording_base` 段填入。如果看到的还是 `{{…}}` 原样，说明拿的是仓库原文件，去 `config/app.json` 里取对应的值。）
 - 关键字段：`录音时间`、`录音内容总结`（完整 AI 总结）、`智能纪要链接`、`录音逐字稿`（指向文字记录文档的链接）、`妙记链接`、`录音ID`、`录制人`、`录制人部门`、`录音时长`。
-- **`录音分析` 是 lookup 字段，值来自「AI输出结果明细」表**（`tblQ3JbplYY490au`），格式是【会议主题 / 价值传递 / 客户反馈 / 下一步计划 / 其他值得注意的信息】。
+- **`录音分析` 是 lookup 字段，值来自「AI输出结果明细」表**（`{{recording_base.ai_result_table_id}}`），格式是【会议主题 / 价值传递 / 客户反馈 / 下一步计划 / 其他值得注意的信息】。
 - 逐字稿/智能纪要链接是云文档，用 `lark-cli docs +fetch --doc <链接URL> --doc-format im-markdown` 直接读，**这条路径通常比妙记权限更宽**。
 
 所以正确顺序是：**先查台账去重 → 反查录音信息整理表（按当天录音时间）→ 有对应录音就用它的总结+逐字稿整理 → 妙记链接照抄表里的值。** 只有当表里也没有这条录音时，才算真的取不到内容。
@@ -175,7 +176,7 @@ metadata:
 
 台账是这条链路的**唯一状态源和去重依据**，写在确认环节之前，不要等销售易写完再补。
 
-- Base：`LkbHbVAaAaKKSrsNcxTc8IuVn7k`（「录音的汇总统计」），表 `tbljWFIYC6S8E0p1`（「拜访跟进台账」）。
+- Base：`{{recording_base.base_token}}`（「录音的汇总统计」），表 `{{recording_base.ledger_table_id}}`（「拜访跟进台账」）。
 - 身份：写 Base 必须用 `--as user`。`--as bot` 会返回 `91403 Forbidden`，不要用 bot 重试。
 - **处理人（必填，用来定位「谁跑的这条流程」）**：人员字段 `处理人`（`fldVYUm4P2`，单选），填**本次真正执行处理的飞书账号**——不是录音的录制人，也不是客户联系人。
   - 取自己的 open_id：`lark-cli api GET /open-apis/authen/v1/user_info --as user`，返回里的 `open_id` 就是当前执行账号。**不要按姓名搜**（`contact +search-user` 可能撞同名，也会查到别人）。
@@ -186,13 +187,23 @@ metadata:
   - 来源表没有录制人（或走的是妙记检索、拿不到录制人）时留空，不猜。
 - 时机与状态流转：
   1. 整理完、准备发给销售确认时 → 建记录，`处理状态=待确认`，填下面这组字段。
-  2. 销售确认并写入销售易后 → 同一条记录 update 为 `处理状态=已写入`，补 `销售易跟进记录ID`。
+  2. 销售确认并写入销售易后 → 同一条记录 update 为 `处理状态=已写入`，补 `销售易跟进记录ID`，并把 `商机情报（MEDDPICC）` 更新成**销售最终确认的版本**（销售改过哪项就按改后的写）。
   3. 销售选「忽略」→ `处理状态=已忽略`。
   4. 写入销售易失败 → `处理状态=写入失败`，`销售易跟进记录ID` 留空；不要自动重试。
 - 填哪些字段（对齐《录音豆数据同步销售易方案》的同步字段口径）：
   - **必填**：客户名称、商机、拜访目的、客户联系人、拜访时间（= 录音时间）、跟进内容（= 活动记录内容，附妙记链接）、跟进方式、意向程度、处理状态、妙记链接、**处理人**（本次执行账号的 open_id）、**录制人**（照抄录音信息整理表）。
   - **可选**：客户方其他人员、我司协访人员、商机推进情况、问题与支持、下次沟通日期、下次行动计划、建议阶段、客户原话依据、**建议更新**（4c 生成的「改前 → 改后」逐条，含预检不通过的项和原因）。
   - 录音里没出现的内容**留空**，不要填「未知 / 待补充」这类占位词，也不要推测。
+- **`商机情报（MEDDPICC）`**：每条都填，存 4b 提取结果的 JSON。销售画像工作台（`visit-to-persona` 技能）直接用这份销售确认过的结果，不再重新提取，所以格式要照下面写：
+  ```json
+  {"opportunityId":"<销售易商机ID，只挂客户时为空串>","accountId":"<销售易客户ID>",
+   "fields":{"pain":{"known":true,"summary":"…","quote":"客户原话，逐字"},
+             "metrics":{…},"economic_buyer":{…},"decision_criteria":{…},
+             "decision_process":{…},"paper_process":{…},"champion":{…},"competition":{…}}}
+  ```
+  八个键对应 4b 的痛点、量化收益、经济决策人、决策标准、决策流程、采购/合同流程、内部支持者、竞争，八个都要有。没摸清的写 `{"known":false,"summary":"","quote":""}`。`quote` 必须是逐字稿里客户原话的原样片段，不改字、不加标点。
+  - 台账里还没有这个字段时，先建一次（文本字段），再写记录：
+    `lark-cli base +field-create --base-token {{recording_base.base_token}} --table-id {{recording_base.ledger_table_id}} --as user --json '{"name":"商机情报（MEDDPICC）","type":"text"}'`
 - 只写客户拜访。内部会议、培训、闲聊**不建台账记录**（跳过即可，不要让台账被非客户内容污染）。
 - 不写 `归档时间`（created_at 系统字段，自动生成）；不写公式字段。
 - 命令（字段名照抄，select 传数组）：
@@ -200,14 +211,14 @@ metadata:
 ```bash
 # 建记录（处理人 / 录制人都必带；处理人取自己 open_id，录制人照抄录音信息整理表）
 MY_OPEN_ID=$(lark-cli api GET /open-apis/authen/v1/user_info --as user --jq '.data.open_id')
-lark-cli base +record-batch-create --base-token LkbHbVAaAaKKSrsNcxTc8IuVn7k \
-  --table-id tbljWFIYC6S8E0p1 --as user --format json \
-  --json '{"create_records":[{"客户名称":"…","商机":"…","拜访时间":"2026-11-23 14:00","跟进方式":["拜访"],"意向程度":["2 意向一般"],"跟进内容":"…","建议阶段":"…","客户原话依据":"…","妙记链接":"https://…/minutes/…","处理状态":["待确认"],"处理人":[{"id":"ou_xxx"}],"录制人":[{"id":"ou_yyy"}]}]}'
+lark-cli base +record-batch-create --base-token {{recording_base.base_token}} \
+  --table-id {{recording_base.ledger_table_id}} --as user --format json \
+  --json '{"create_records":[{"客户名称":"…","商机":"…","拜访时间":"2026-11-23 14:00","跟进方式":["拜访"],"意向程度":["2 意向一般"],"跟进内容":"…","建议阶段":"…","客户原话依据":"…","商机情报（MEDDPICC）":"{\"opportunityId\":\"…\",\"accountId\":\"…\",\"fields\":{…}}","妙记链接":"https://…/minutes/…","处理状态":["待确认"],"处理人":[{"id":"ou_xxx"}],"录制人":[{"id":"ou_yyy"}]}]}'
 
 # 更新状态（每条记录一个对象，自动归一化）
-lark-cli base +record-batch-update --base-token LkbHbVAaAaKKSrsNcxTc8IuVn7k \
-  --table-id tbljWFIYC6S8E0p1 --as user --format json \
-  --json '{"update_records":{"rec…":{"处理状态":["已写入"],"销售易跟进记录ID":"…"}}}'
+lark-cli base +record-batch-update --base-token {{recording_base.base_token}} \
+  --table-id {{recording_base.ledger_table_id}} --as user --format json \
+  --json '{"update_records":{"rec…":{"处理状态":["已写入"],"销售易跟进记录ID":"…","商机情报（MEDDPICC）":"<销售确认后的 JSON>"}}}'
 ```
 
 ## 权限
