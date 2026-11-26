@@ -7,6 +7,8 @@
 - **A. 豆包工作伙伴（推荐）**：一个工作伙伴「拜访录入助手」+ 官方「飞书妙记」「销售易 CRM」连接器 + 本仓库的两个技能（`visit-to-xsy` 拜访录入、`xsy-sales-assistant` 查商机/晨报/记一笔）+ 提示词 `aily/`。`node scripts/aily-deploy.mjs` 一键配置，无需服务器；`scripts/send-intro-card.mjs` 给销售发能力介绍卡片。
 - **B. 自托管服务**：本仓库的 Node 程序，多维表格做状态和确认界面。`node src/cli.mjs init` 一键配置。
 
+另有 **[销售画像工作台](workbench/)**：给销售总监看的团队六维画像、维度归纳和派单推荐，是飞书妙搭应用。目前用虚构演示数据，还没接真实拜访和销售易。
+
 下面是方式 B 的说明。
 
 ## 流程
