@@ -4,8 +4,10 @@
 
 两种运行方式，部署步骤见 **[DEPLOY.md](DEPLOY.md)**：
 
-- **A. 豆包工作伙伴（推荐）**：一个工作伙伴「拜访录入助手」+ 官方「飞书妙记」「销售易 CRM」连接器 + 本仓库的两个技能（`visit-to-xsy` 拜访录入、`xsy-sales-assistant` 查商机/晨报/记一笔）+ 提示词 `aily/`。`node scripts/aily-deploy.mjs` 一键配置，无需服务器；`scripts/send-intro-card.mjs` 给销售发能力介绍卡片。
+- **A. 豆包工作伙伴（推荐）**：一个工作伙伴「拜访录入助手」+ 官方「飞书妙记」「销售易 CRM」连接器 + 本仓库的三个技能（`visit-to-xsy` 拜访录入、`xsy-sales-assistant` 查商机/晨报/记一笔、`visit-brief` 拜访速记）+ 提示词 `aily/`。`node scripts/aily-deploy.mjs` 一键配置，无需服务器；`scripts/send-intro-card.mjs` 给销售发能力介绍卡片。
 - **B. 自托管服务**：本仓库的 Node 程序，多维表格做状态和确认界面。`node src/cli.mjs init` 一键配置。
+
+**拜访速记**（`skills/visit-brief`）：每次拜访给销售两样东西，一是客户问的所有问题，从逐字稿里一字不改地抄出来；二是一段 100 字以内的日报总结，先识别这次拜访的目的（需求调研、产品介绍、方案交流、项目推进、商务谈判、交付回访），再围绕这个目的写。只读妙记，不写任何系统。验收用例在 `test-fixtures/brief/`，核对脚本 `node scripts/check-visit-brief.mjs --suite <速记目录>` 逐处对照人工标注：每条提问是否整句原样出自逐字稿那一段、有没有多带别人的话、漏收、重复收、标注对不对，日报有没有超 100 字、关键事实有没有写反。`npm test` 跑核对脚本自身的回归测试（底稿在 `test-fixtures/brief/golden/`）。
 
 另有 **[销售画像工作台](workbench/)**：给销售总监看的团队六维画像、维度归纳和派单推荐，是飞书妙搭应用。真实拜访由技能 `skills/visit-to-persona` 送进去：它读台账里已写入销售易的拜访、逐字稿和销售确认过的 MEDDPICC，做对话标注后写进工作台，分数和归纳由工作台按规则算。这个技能给总监用，不装进销售的「拜访录入助手」。
 
@@ -60,6 +62,7 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 | `src/card.mjs` | 飞书确认卡片（Card 2.0） |
 | `src/pipeline.mjs` | 状态机主流程 |
 | `skills/visit-to-xsy/SKILL.md` | 同一流程的技能（方式 A 用），也可装进 OpenClaw / Claude Code |
+| `skills/visit-brief/SKILL.md` + `scripts/check-visit-brief.mjs` + `test-fixtures/brief/` | 拜访速记：客户提问原话 + 100 字日报总结；核对脚本和验收用例 |
 | `aily/` | 豆包工作伙伴的提示词（伙伴档案、行为准则）和自动化任务配置 |
 | `scripts/aily-deploy.mjs` | 方式 A 一键部署（驱动 aily 网页 + aily 内部接口） |
 | `scripts/send-intro-card.mjs` + `aily/intro-card.mjs` + `aily/images/` | 能力介绍卡片：GPT 生成的设计图（头图、能力一览、三步开始，提示词见 `aily/images/PROMPTS.md`）；`scripts/preview-intro-card.mjs` 本地预览。录音豆按官方产品图作参考生成 |
@@ -72,13 +75,14 @@ node src/cli.mjs listen --every 3   # 常驻：卡片回调 + 每 3 分钟 tick
 
 ## 版本号
 
-整个仓库**一个发版号**，以下 4 处必须始终相同，改一处就要一起改：
+整个仓库**一个发版号**，以下几处必须始终相同，改一处就要一起改：
 
 | 位置 | 字段 |
 |---|---|
 | `package.json` / `package-lock.json` | `version` |
 | `skills/visit-to-xsy/SKILL.md` | frontmatter `version` |
 | `skills/xsy-sales-assistant/SKILL.md` | frontmatter `version` |
+| `skills/visit-brief/SKILL.md`、`skills/visit-to-persona/SKILL.md` | frontmatter `version` |
 | `src/xsy-mcp.mjs` | MCP `Client({ name, version })` |
 
 规则：语义化版本，`x.y.z`。技能内容变化（新增流程、改判断口径、修坑）记次版本 `y`，仅文案/措辞记补丁 `z`。两个技能不单独编号——它们是一套一起部署、一起验证的，各自编号只会让线上和仓库对不上（1.0.x 与 0.x 混用的教训）。
